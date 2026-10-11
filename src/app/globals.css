@@ -1,26 +1,79 @@
 @import "tailwindcss";
 
+/* Design tokens. Light by default, dark when the phone is in dark mode. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f5f1;
+  --foreground: #1c1b19;
+  --surface: #ffffff;
+  --muted: #74716a;
+  --line: #e7e4dc;
+  --track: #eeebe4;
+
+  --accent: #4ade80; /* calories / brand */
+  --accent-ink: #15803d;
+  --protein: #38bdf8;
+  --protein-ink: #0369a1;
+  --carbs: #fbbf24;
+  --carbs-ink: #a16207;
+  --fat: #fb7185;
+  --fat-ink: #be123c;
+  --fiber: #a78bfa;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0e0f0d;
+    --foreground: #f1f0ec;
+    --surface: #181a17;
+    --muted: #9b998f;
+    --line: #2a2c28;
+    --track: #262824;
+
+    --accent-ink: #86efac;
+    --protein-ink: #7dd3fc;
+    --carbs-ink: #fcd34d;
+    --fat-ink: #fda4af;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-track: var(--track);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-protein: var(--protein);
+  --color-protein-ink: var(--protein-ink);
+  --color-carbs: var(--carbs);
+  --color-carbs-ink: var(--carbs-ink);
+  --color-fat: var(--fat);
+  --color-fat-ink: var(--fat-ink);
+  --color-fiber: var(--fiber);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Bouncing bars shown while the AI is speaking. */
+@keyframes speak {
+  0%,
+  100% {
+    height: 25%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+
+/* Fade the top of the live transcript into the camera image. */
+.mask-fade-top {
+  mask-image: linear-gradient(to bottom, transparent 0, black 2.5rem);
 }
