@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { LiveSessionController, LiveState } from "@/lib/live-session";
-import { CloseIcon, MicIcon } from "./icons";
+import { CloseIcon, LabelIcon, MicIcon } from "./icons";
+import { ProductCard } from "./ProductCard";
 
 const STATUS_LABEL: Record<LiveState["status"], string> = {
   idle: "",
@@ -67,14 +68,28 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
           )}
         </div>
         {!over && (
-          <button
-            type="button"
-            onClick={() => controller.end()}
-            className="rounded-full bg-black/40 p-2.5 backdrop-blur transition hover:bg-black/60"
-            aria-label="Close"
-          >
-            <CloseIcon />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Label mode: sharper frames for reading small print. The agent also turns it on by itself. */}
+            <button
+              type="button"
+              onClick={() => controller.toggleLabelMode()}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium backdrop-blur transition ${
+                state.labelMode ? "bg-accent text-black" : "bg-black/40 hover:bg-black/60"
+              }`}
+              aria-pressed={state.labelMode}
+            >
+              <LabelIcon width={18} height={18} />
+              Label
+            </button>
+            <button
+              type="button"
+              onClick={() => controller.end()}
+              className="rounded-full bg-black/40 p-2.5 backdrop-blur transition hover:bg-black/60"
+              aria-label="Close"
+            >
+              <CloseIcon />
+            </button>
+          </div>
         )}
       </header>
 
@@ -82,15 +97,34 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
         <p className="relative z-10 mx-4 rounded-2xl bg-amber-500/90 px-4 py-2.5 text-sm text-black">{state.notice}</p>
       )}
 
-      <div className="flex-1" />
+      {/* Product card for the current label scan (scrolls if it doesn't fit) */}
+      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {!over && state.product && (
+          <ProductCard key={state.product.ratedAt} product={state.product} onClose={() => controller.dismissProduct()} />
+        )}
+        {!over && !state.product && state.labelMode && (
+          <p className="mx-auto w-fit rounded-full bg-black/50 px-3.5 py-1.5 text-center text-xs text-white/85 backdrop-blur">
+            Label mode: fill the screen with the label and hold steady
+          </p>
+        )}
+      </div>
 
       {/* Transcript + controls */}
       {!over && (
-        <footer className="relative z-10 bg-gradient-to-t from-black/85 via-black/60 to-transparent px-4 pb-[max(env(safe-area-inset-bottom),1.25rem)] pt-16">
-          <div ref={transcriptRef} className="mask-fade-top mb-4 max-h-[38vh] space-y-2 overflow-y-auto pr-1">
+        <footer
+          className={`relative z-10 bg-gradient-to-t from-black/85 via-black/60 to-transparent px-4 pb-[max(env(safe-area-inset-bottom),1.25rem)] ${
+            state.product ? "pt-4" : "pt-16"
+          }`}
+        >
+          {/* Shorter transcript while a product card needs the room. */}
+          <div
+            ref={transcriptRef}
+            className={`mask-fade-top mb-4 space-y-2 overflow-y-auto pr-1 ${state.product ? "max-h-[18vh]" : "max-h-[38vh]"}`}
+          >
             {state.transcript.length === 0 && state.status === "live" && (
               <p className="text-center text-sm text-white/70">
-                Point at your food and ask, &ldquo;How many calories is this?&rdquo;
+                Point at your food and ask, &ldquo;How many calories is this?&rdquo; Or show the back of a pack and
+                say &ldquo;Rate this.&rdquo;
               </p>
             )}
             {state.transcript.map((entry) =>

@@ -7,6 +7,9 @@
  *   speaker ◀─24 kHz PCM────────┤  audio replies (stopped instantly on barge-in)
  *   transcript ◀───────────────┤  input/output transcriptions
  *   localStorage ◀─tool calls──┘  log_meal / get_today_summary / delete_last_meal
+ *   product card ◀─tool calls──┘  scan_label / show_product_rating (memory only)
+ *
+ * "Label mode" sends sharper frames while the agent reads a package's label.
  *
  * It's a plain class (not a React hook) so the many moving parts live in one
  * place. React subscribes to its state via `useLiveSession()`.
@@ -15,16 +18,22 @@ import { GoogleGenAI, Modality, type LiveServerMessage, type Session } from "@go
 import { MicStreamer, PcmPlayer } from "./audio";
 import {
   FRAME_INTERVAL_MS,
+  LABEL_FRAME_JPEG_QUALITY,
+  LABEL_FRAME_MAX_SIZE,
+  LABEL_MODE_TIMEOUT_MS,
+  LIVE_MEDIA_RESOLUTION,
   LIVE_MODEL,
   MAX_RECONNECT_ATTEMPTS,
   SILENCE_TIMEOUT_MS,
   SILENCE_WARNING_MS,
   VOICE_NAME,
 } from "./config";
+import { LABEL_REQUEST_PATTERN } from "./label";
 import { FrameGrabber, getMicAndCamera } from "./media";
 import { buildSystemInstruction } from "./prompt";
 import { getAccessCode, getSnapshot } from "./storage";
 import { runTool, TOOL_DECLARATIONS } from "./tools";
+import type { ProductRating } from "./types";
 
 export type LiveStatus =
   | "idle" // nothing running, overlay hidden
@@ -56,6 +65,10 @@ export interface LiveState {
   /** Seconds until auto-end, shown only near the silence timeout. */
   silenceCountdown: number | null;
   stream: MediaStream | null;
+  /** Sending sharp, high-resolution frames so a label's small print is legible. */
+  labelMode: boolean;
+  /** The product currently rated on screen (only the latest scan; never saved). */
+  product: ProductRating | null;
 }
 
 const INITIAL_STATE: LiveState = {
@@ -65,6 +78,8 @@ const INITIAL_STATE: LiveState = {
   micLevel: 0,
   silenceCountdown: null,
   stream: null,
+  labelMode: false,
+  product: null,
 };
 
 const CONNECT_TIMEOUT_MS = 15_000;
@@ -94,6 +109,8 @@ export class LiveSessionController {
   private connectedAt = 0;
   private lastActivity = 0;
   private nextEntryId = 1;
+  /** When label mode switches itself off (Infinity when the user turned it on). */
+  private labelModeUntil = 0;
 
   // --- tiny external store API for React --------------------------------------
 
@@ -155,7 +172,7 @@ export class LiveSessionController {
 
       this.set({ status: "live" });
       this.lastActivity = Date.now();
-      this.frameTimer = setInterval(() => this.sendFrame(), FRAME_INTERVAL_MS);
+      this.startFrames();
       this.tickTimer = setInterval(() => this.tick(), 1000);
       void this.requestWakeLock();
     } catch (err) {
@@ -169,6 +186,17 @@ export class LiveSessionController {
     this.set({ ...INITIAL_STATE });
   }
 
+  /** The label-mode button: on until turned off (no auto timeout), or off. */
+  toggleLabelMode() {
+    if (this.state.labelMode) this.set({ labelMode: false });
+    else this.enterLabelMode(Infinity);
+  }
+
+  /** Close the product card. */
+  dismissProduct() {
+    this.set({ product: null });
+  }
+
   /** Hide the "ended"/"error" overlay. */
   dismiss() {
     if (this.stopped) this.set({ ...INITIAL_STATE });
@@ -178,14 +206,32 @@ export class LiveSessionController {
   private finish(message: string) {
     if (this.stopped) return;
     this.teardown();
-    this.set({ status: "ended", message, stream: null, modelSpeaking: false, micLevel: 0, silenceCountdown: null });
+    this.set({
+      status: "ended",
+      message,
+      stream: null,
+      modelSpeaking: false,
+      micLevel: 0,
+      silenceCountdown: null,
+      labelMode: false,
+      product: null,
+    });
   }
 
   private fail(message: string) {
     if (this.stopped) return;
     console.warn("[live] error:", message);
     this.teardown();
-    this.set({ status: "error", message, stream: null, modelSpeaking: false, micLevel: 0, silenceCountdown: null });
+    this.set({
+      status: "error",
+      message,
+      stream: null,
+      modelSpeaking: false,
+      micLevel: 0,
+      silenceCountdown: null,
+      labelMode: false,
+      product: null,
+    });
   }
 
   /** Idempotent cleanup of every resource. */
@@ -227,6 +273,8 @@ export class LiveSessionController {
       model: LIVE_MODEL,
       config: {
         responseModalities: [Modality.AUDIO],
+        // Tokens per camera frame; the default is too coarse to read label print.
+        mediaResolution: LIVE_MEDIA_RESOLUTION,
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
         // Rebuilt on every connect so it includes the latest totals.
         systemInstruction: buildSystemInstruction(getSnapshot()),
@@ -334,7 +382,12 @@ export class LiveSessionController {
     if (msg.toolCall?.functionCalls?.length) {
       this.markActivity();
       const results = msg.toolCall.functionCalls.map(runTool);
-      results.forEach((r) => r.event && this.addEvent(r.event));
+      for (const r of results) {
+        if (r.event) this.addEvent(r.event);
+        if (r.product) this.set({ product: r.product });
+        // Switching now also sends a sharp frame right away, before the model reads on.
+        if (r.labelMode) this.enterLabelMode();
+      }
       this.safeSend(() => this.session?.sendToolResponse({ functionResponses: results.map((r) => r.response) }));
     }
 
@@ -358,6 +411,9 @@ export class LiveSessionController {
     if (content.inputTranscription?.text) {
       this.markActivity();
       this.appendTranscript("user", content.inputTranscription.text);
+      // "Rate this" etc.: go sharp immediately, without waiting for the model's scan_label call.
+      const said = this.state.transcript.at(-1)?.text ?? "";
+      if (LABEL_REQUEST_PATTERN.test(said)) this.enterLabelMode();
     }
     if (content.outputTranscription?.text) {
       this.finalize("user"); // the model is answering, so the user's turn is done
@@ -376,9 +432,16 @@ export class LiveSessionController {
     this.safeSend(() => this.session?.sendRealtimeInput({ audio: { data: pcm, mimeType: "audio/pcm;rate=16000" } }));
   }
 
+  private startFrames() {
+    if (this.frameTimer) clearInterval(this.frameTimer);
+    this.frameTimer = setInterval(() => this.sendFrame(), FRAME_INTERVAL_MS);
+  }
+
   private sendFrame() {
     if (this.state.status !== "live" || document.hidden) return;
-    const jpeg = this.frames?.capture(this.video);
+    const jpeg = this.state.labelMode
+      ? this.frames?.capture(this.video, LABEL_FRAME_MAX_SIZE, LABEL_FRAME_JPEG_QUALITY)
+      : this.frames?.capture(this.video);
     if (!jpeg) return;
     this.safeSend(() => this.session?.sendRealtimeInput({ video: { data: jpeg, mimeType: "image/jpeg" } }));
   }
@@ -392,6 +455,20 @@ export class LiveSessionController {
     }
   }
 
+  // --- label mode -----------------------------------------------------------------
+
+  /** Turn on (or extend) label mode. Auto-triggers expire; the button's doesn't. */
+  private enterLabelMode(until = Date.now() + LABEL_MODE_TIMEOUT_MS) {
+    this.labelModeUntil = Math.max(until, this.state.labelMode ? this.labelModeUntil : 0);
+    if (this.state.labelMode) return;
+    this.set({ labelMode: true });
+    // Send a sharp frame now and restart the 1 fps clock from it (stays within the rate limit).
+    if (this.frameTimer) {
+      this.sendFrame();
+      this.startFrames();
+    }
+  }
+
   // --- silence timeout ----------------------------------------------------------
 
   private markActivity() {
@@ -402,6 +479,7 @@ export class LiveSessionController {
   private tick() {
     if (this.stopped) return;
     if (this.player?.playing || this.state.status === "reconnecting") this.markActivity();
+    if (this.state.labelMode && Date.now() > this.labelModeUntil) this.set({ labelMode: false });
     const left = SILENCE_TIMEOUT_MS - (Date.now() - this.lastActivity);
     if (left <= 0) {
       this.finish("Session ended after 2 minutes of silence to save your quota.");

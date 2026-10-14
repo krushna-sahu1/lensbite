@@ -19,8 +19,9 @@ const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
 
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
   facingMode: { ideal: "environment" }, // rear camera on phones
-  width: { ideal: 1280 },
-  height: { ideal: 720 },
+  // Full HD where available so label mode has enough pixels for small print.
+  width: { ideal: 1920 },
+  height: { ideal: 1080 },
 };
 
 /** Ask for mic + rear camera. Falls back to mic-only if the camera fails. */
@@ -71,18 +72,19 @@ export class FrameGrabber {
   private canvas = document.createElement("canvas");
 
   /** Returns base64 JPEG (no data: prefix), or null if the video isn't ready. */
-  capture(video: HTMLVideoElement | null): string | null {
+  capture(video: HTMLVideoElement | null, maxSize = FRAME_MAX_SIZE, quality = FRAME_JPEG_QUALITY): string | null {
     if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return null;
     const { videoWidth: w, videoHeight: h } = video;
     if (!w || !h) return null;
 
-    const scale = Math.min(1, FRAME_MAX_SIZE / Math.max(w, h));
+    const scale = Math.min(1, maxSize / Math.max(w, h));
     this.canvas.width = Math.round(w * scale);
     this.canvas.height = Math.round(h * scale);
     const ctx = this.canvas.getContext("2d");
     if (!ctx) return null;
+    ctx.imageSmoothingQuality = "high"; // keeps small text crisper when downscaling
     ctx.drawImage(video, 0, 0, this.canvas.width, this.canvas.height);
-    const dataUrl = this.canvas.toDataURL("image/jpeg", FRAME_JPEG_QUALITY);
+    const dataUrl = this.canvas.toDataURL("image/jpeg", quality);
     return dataUrl.slice(dataUrl.indexOf(",") + 1);
   }
 }
