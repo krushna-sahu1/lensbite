@@ -6,7 +6,7 @@
  *                      │        │
  *   speaker ◀─24 kHz PCM────────┤  audio replies (stopped instantly on barge-in)
  *   transcript ◀───────────────┤  input/output transcriptions
- *   localStorage ◀─tool calls──┘  log_meal / get_today_summary / delete_last_meal
+ *   Supabase ◀─────tool calls──┘  log_meal / get_today_summary / delete_last_meal
  *   product card ◀─tool calls──┘  scan_label / show_product_rating (memory only)
  *
  * "Label mode" sends sharper frames while the agent reads a package's label.
@@ -31,7 +31,7 @@ import {
 import { LABEL_REQUEST_PATTERN } from "./label";
 import { FrameGrabber, getMicAndCamera } from "./media";
 import { buildSystemInstruction } from "./prompt";
-import { getAccessCode, getSnapshot } from "./storage";
+import { getSnapshot, refresh } from "./storage";
 import { runTool, TOOL_DECLARATIONS } from "./tools";
 import type { ProductRating } from "./types";
 
@@ -264,7 +264,8 @@ export class LiveSessionController {
 
   private async connect() {
     const gen = ++this.generation;
-    const token = await fetchToken();
+    // Fresh totals for the system prompt; fall back to the cached ones if Supabase is unreachable.
+    const [token, snapshot] = await Promise.all([fetchToken(), refresh().catch(() => getSnapshot())]);
     if (gen !== this.generation) return;
 
     // The ephemeral token is used in place of an API key.
@@ -277,7 +278,7 @@ export class LiveSessionController {
         mediaResolution: LIVE_MEDIA_RESOLUTION,
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
         // Rebuilt on every connect so it includes the latest totals.
-        systemInstruction: buildSystemInstruction(getSnapshot()),
+        systemInstruction: buildSystemInstruction(snapshot),
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
         // Text transcripts of both sides, for the on-screen transcript.
         inputAudioTranscription: {},
@@ -289,7 +290,7 @@ export class LiveSessionController {
       },
       callbacks: {
         onmessage: (msg) => {
-          if (gen === this.generation) this.handleMessage(msg);
+          if (gen === this.generation) this.handleMessage(msg, gen);
         },
         onerror: (e) => {
           if (gen === this.generation) console.warn("[live] socket error", e);
@@ -366,7 +367,7 @@ export class LiveSessionController {
     }
   }
 
-  private handleMessage(msg: LiveServerMessage) {
+  private handleMessage(msg: LiveServerMessage, gen: number) {
     // Keep the newest resumption handle so we can reconnect seamlessly.
     if (msg.sessionResumptionUpdate?.resumable && msg.sessionResumptionUpdate.newHandle) {
       this.resumeHandle = msg.sessionResumptionUpdate.newHandle;
@@ -381,14 +382,17 @@ export class LiveSessionController {
 
     if (msg.toolCall?.functionCalls?.length) {
       this.markActivity();
-      const results = msg.toolCall.functionCalls.map(runTool);
-      for (const r of results) {
-        if (r.event) this.addEvent(r.event);
-        if (r.product) this.set({ product: r.product });
-        // Switching now also sends a sharp frame right away, before the model reads on.
-        if (r.labelMode) this.enterLabelMode();
-      }
-      this.safeSend(() => this.session?.sendToolResponse({ functionResponses: results.map((r) => r.response) }));
+      void Promise.all(msg.toolCall.functionCalls.map(runTool)).then((results) => {
+        // The tools wait on Supabase; drop the results if the session ended or moved meanwhile.
+        if (gen !== this.generation) return;
+        for (const r of results) {
+          if (r.event) this.addEvent(r.event);
+          if (r.product) this.set({ product: r.product });
+          // Switching now also sends a sharp frame right away, before the model reads on.
+          if (r.labelMode) this.enterLabelMode();
+        }
+        this.safeSend(() => this.session?.sendToolResponse({ functionResponses: results.map((r) => r.response) }));
+      });
     }
 
     const content = msg.serverContent;
@@ -537,7 +541,8 @@ export class LiveSessionController {
 async function fetchToken(): Promise<string> {
   let res: Response;
   try {
-    res = await fetch("/api/token", { method: "POST", headers: { "x-access-code": getAccessCode() } });
+    // Sends the Supabase session cookie; the route only hands out tokens to signed-in users.
+    res = await fetch("/api/token", { method: "POST" });
   } catch {
     throw new Error("Can't reach the server. Check your internet connection.");
   }

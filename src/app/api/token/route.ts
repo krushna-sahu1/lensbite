@@ -5,26 +5,25 @@
  * Live API WebSocket without ever seeing GEMINI_API_KEY.
  * Docs: https://ai.google.dev/gemini-api/docs/ephemeral-tokens
  *
- * Optional protection: if ACCESS_CODE is set, the request must send the same
- * value in the `x-access-code` header (entered once in the app's Settings).
- * Without it, anyone who finds your deployed URL could spend your quota.
+ * Only signed-in users get a token (checked from the Supabase session cookie),
+ * so someone who finds your deployed URL can't spend your quota.
  */
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from "@/lib/supabase/server";
 
-export async function POST(request: Request) {
+export async function POST() {
+  // getClaims() verifies the JWT signature, unlike getSession().
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  if (!data?.claims) {
+    return Response.json({ error: "You're signed out. Sign in again, then tap Go Live." }, { status: 401 });
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return Response.json(
       { error: "The server is missing GEMINI_API_KEY. Add it to .env.local (or your Vercel project's environment variables) and restart." },
       { status: 500 },
-    );
-  }
-
-  const accessCode = process.env.ACCESS_CODE;
-  if (accessCode && request.headers.get("x-access-code") !== accessCode) {
-    return Response.json(
-      { error: "Access code missing or wrong. Enter it in Settings." },
-      { status: 401 },
     );
   }
 
@@ -42,7 +41,7 @@ export async function POST(request: Request) {
         newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
         // We deliberately don't set `liveConnectConstraints`: locking the config
         // on the server would override the client's system prompt, which has to
-        // include today's totals from localStorage.
+        // include today's totals from Supabase.
       },
     });
 

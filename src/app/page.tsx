@@ -1,23 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { DailySummary } from "@/components/DailySummary";
 import { CameraIcon, SettingsIcon } from "@/components/icons";
 import { LiveView } from "@/components/LiveView";
 import { MealList } from "@/components/MealList";
-import { mealsOnDay, sumNutrients } from "@/lib/nutrition";
-import { useStore } from "@/lib/storage";
+import { localDateKey, mealsOnDay, sumNutrients } from "@/lib/nutrition";
+import { refresh, SIGNED_OUT_MESSAGE, useStore } from "@/lib/storage";
 import { useNow } from "@/lib/use-now";
 import { useLiveSession } from "@/lib/use-live-session";
 
 export default function Home() {
-  const { meals, goals } = useStore();
+  const { meals, goals, loaded, error, day } = useStore();
   const { controller, state } = useLiveSession();
 
   const now = useNow(); // null while server-rendering
   const today = useMemo(() => (now ? mealsOnDay(meals, now) : []), [meals, now]);
   const totals = useMemo(() => sumNutrients(today), [today]);
+
+  // The store holds one day of meals. After midnight, load the new day.
+  const todayKey = now ? localDateKey(now) : null;
+  useEffect(() => {
+    if (loaded && todayKey && todayKey !== day) void refresh().catch(() => {});
+  }, [loaded, todayKey, day]);
 
   return (
     <>
@@ -40,13 +46,32 @@ export default function Home() {
           </Link>
         </header>
 
+        {error && (
+          <p role="alert" className="mb-4 rounded-2xl bg-fat/15 px-4 py-3 text-sm text-fat-ink">
+            {error}{" "}
+            {error === SIGNED_OUT_MESSAGE ? (
+              <Link href="/login" className="font-semibold underline">
+                Sign in
+              </Link>
+            ) : (
+              <button type="button" onClick={() => void refresh().catch(() => {})} className="font-semibold underline">
+                Retry
+              </button>
+            )}
+          </p>
+        )}
+
         <DailySummary totals={totals} goals={goals} />
 
         <h2 className="mb-3 mt-7 flex items-baseline justify-between px-1">
           <span className="text-lg font-semibold">Today&apos;s meals</span>
           {today.length > 0 && <span className="text-sm text-muted">{today.length} logged</span>}
         </h2>
-        <MealList meals={today} />
+        {loaded ? (
+          <MealList meals={today} />
+        ) : (
+          <div className="h-28 animate-pulse rounded-3xl bg-track" aria-label="Loading meals" />
+        )}
       </main>
 
       {/* Sticky "Go Live" button */}
