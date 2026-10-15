@@ -22,7 +22,7 @@ The agent sees the camera, answers out loud in real time, lets you interrupt it,
 
 - [Demo](#demo)
 - [Features](#features)
-- [How it works](#how-it-works)
+- [Architecture](#architecture)
 - [Tech stack](#tech-stack)
 - [Agent tools](#agent-tools)
 - [Getting started](#getting-started)
@@ -98,49 +98,124 @@ The agent sees the camera, answers out loud in real time, lets you interrupt it,
 
 ---
 
-## How it works
+## Architecture
 
-The browser talks to Gemini Live **directly** over a WebSocket, so audio round-trips stay fast. The server's only jobs are to check your Supabase session and mint a one-time token with the real API key. When the model calls a tool, the browser runs it against Supabase **as the signed-in user** (so RLS applies) and sends the result back on the same socket.
+### Overview
+
+LensBite is a client-heavy Next.js application. The real-time media pipeline runs entirely in the browser, which holds a direct WebSocket to the Gemini Live API so audio round-trips skip the application server. The server has three narrow responsibilities: maintaining the Supabase session, completing the magic-link sign-in, and exchanging a verified session for a short-lived Gemini credential. Persistent state lives in Supabase Postgres, where Row Level Security is the authorization boundary.
+
+```mermaid
+flowchart LR
+    subgraph Client["Browser (React 19)"]
+        UI["UI<br/>Home · Live · Settings"]
+        LSC["LiveSessionController"]
+        Tools["Tool executor<br/>runTool()"]
+        Store["Data store<br/>useStore()"]
+        UI <--> LSC
+        LSC --> Tools
+        Tools --> Store
+        UI <--> Store
+    end
+
+    subgraph Server["Next.js server"]
+        Proxy["proxy.ts<br/>session refresh, route guard"]
+        Token["POST /api/token"]
+        Confirm["GET /auth/confirm"]
+    end
+
+    subgraph External["Managed services"]
+        Gemini["Gemini Live API"]
+        Auth["Supabase Auth"]
+        DB[("Supabase Postgres<br/>RLS")]
+    end
+
+    Client -- "page requests" --> Proxy
+    Proxy --> Auth
+    Confirm --> Auth
+    LSC -- "fetch token" --> Token
+    Token -- "verify JWT" --> Auth
+    Token -- "mint ephemeral token" --> Gemini
+    LSC <== "WebSocket: audio, video, tool calls" ==> Gemini
+    Store -- "PostgREST as the user" --> DB
+```
+
+### Components
+
+| Layer | Component | Responsibility |
+| --- | --- | --- |
+| Client | `LiveSessionController` (`src/lib/live-session.ts`) | Owns the live session lifecycle: device capture, streaming, playback, transcripts, tool dispatch, label mode, silence timeout and reconnection. A framework-agnostic class exposed to React through `useSyncExternalStore`. |
+| Client | `MicStreamer` / `PcmPlayer` (`src/lib/audio.ts`) | Captures the microphone through an AudioWorklet as 16 kHz 16-bit PCM; plays 24 kHz model audio gap-free and can stop it instantly. |
+| Client | `FrameGrabber` (`src/lib/media.ts`) | Samples the rear camera to JPEG at 1 fps, at standard or label-mode resolution. |
+| Client | Tool executor (`src/lib/tools.ts`) | Declares the agent's functions and executes model tool calls; never rejects, so the model always receives a response. |
+| Client | Data store (`src/lib/storage.ts`) | Single source of truth for today's meals, goals and meal count, shared by the UI and the tools. |
+| Server | Proxy (`src/proxy.ts`) | Runs before every page and API request: refreshes Supabase auth cookies and redirects unauthenticated page requests to `/login`. |
+| Server | `POST /api/token` | Verifies the caller's JWT, then issues a single-use Gemini ephemeral token. The only code path that reads `GEMINI_API_KEY`. |
+| Server | `GET /auth/confirm` | Completes magic-link sign-in (PKCE code exchange or `token_hash` verification) and sets the session cookie. |
+| External | Gemini Live API | Speech recognition, multimodal reasoning, speech synthesis and function calling over one bidirectional stream. |
+| External | Supabase | Email magic-link authentication and the Postgres database. |
+
+### Request flows
+
+**1. Authentication.** The user requests a magic link from `/login`. The emailed link lands on `/auth/confirm`, which exchanges it for a session stored in HTTP cookies. On every subsequent request the proxy validates the session with `getClaims()`, refreshing tokens when needed, and sends signed-out visitors back to `/login`. API routes are exempt from the redirect and return `401` themselves.
+
+**2. Session start.** Tapping **Go Live** acquires the microphone and camera inside the user gesture (required for audio on iOS), then fetches an ephemeral token and the latest snapshot of today's log in parallel. The snapshot is rendered into the system instruction, so the agent starts with current goals and totals, and the client opens the Live WebSocket with the token.
+
+**3. Real-time loop.** Microphone audio streams continuously and camera frames at 1 fps. Model audio is queued for playback, and an `interrupted` signal from the server clears the queue immediately (barge-in). Input and output transcriptions drive the on-screen transcript.
+
+**4. Tool execution.** When the model emits a tool call, the browser executes it against Supabase with the user's own session, so Row Level Security applies exactly as it would to any direct API call. The result is returned with `sendToolResponse`. Tools are declared `BLOCKING`, so the model waits for the persisted result before confirming to the user.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant B as Phone browser
-    participant P as Next.js server<br/>(proxy + /api/token)
+    participant B as Browser
+    participant N as Next.js server
     participant G as Gemini Live API
-    participant S as Supabase<br/>(Auth + Postgres + RLS)
+    participant S as Supabase
 
-    B->>P: Open app
-    P->>S: Verify and refresh session cookie
-    P-->>B: Page, or redirect to /login
-
-    B->>P: POST /api/token (session cookie)
-    P->>S: getClaims() verifies the JWT
-    P->>G: authTokens.create() with GEMINI_API_KEY
-    G-->>P: Ephemeral token (1 use)
-    P-->>B: token
-
-    B->>S: Load today's meals and goals for the system prompt
-    B->>G: live.connect(token) opens a WebSocket
-    loop While live
-        B->>G: Mic audio (16 kHz PCM) + camera frames (1 fps JPEG)
-        G-->>B: Voice reply (24 kHz PCM) + transcripts
-        G-->>B: toolCall, e.g. log_meal
-        B->>S: insert / select / delete as the user (RLS)
-        S-->>B: Rows
-        B->>G: sendToolResponse(result)
+    B->>N: POST /api/token (session cookie)
+    N->>S: Verify JWT
+    N->>G: Create ephemeral token (single use)
+    G-->>N: Token
+    N-->>B: Token
+    B->>S: Read today's meals and goals
+    B->>G: Open WebSocket with token and system instruction
+    loop Live session
+        B->>G: PCM audio and JPEG frames
+        G-->>B: Audio, transcripts
+        G-->>B: Tool call, e.g. log_meal
+        B->>S: Write or read as the user (RLS)
+        S-->>B: Result
+        B->>G: Tool response
     end
 ```
 
-Key pieces:
+### Data model
 
-| Piece | Role |
-| --- | --- |
-| `LiveSessionController` (`src/lib/live-session.ts`) | The core: mic/camera streaming, audio playback with instant stop on barge-in, transcripts, tool calls, silence timeout, label mode, reconnects |
-| `runTool()` (`src/lib/tools.ts`) | Executes the model's function calls in the browser and returns results to Gemini |
-| `useStore()` (`src/lib/storage.ts`) | Supabase-backed store for today's meals and goals that the UI and the tools share |
-| `src/proxy.ts` | Refreshes the Supabase session on each request and redirects signed-out visitors to `/login` |
-| `/api/token` | Issues ephemeral Gemini tokens to signed-in users only |
+| Table | Key | Columns | Notes |
+| --- | --- | --- | --- |
+| `meals` | `id` (uuid) | `user_id`, `eaten_at`, `meal_type`, `name`, `calories`, `protein_g`, `carbs_g`, `fat_g`, `fiber_g`, `notes` | Indexed on `(user_id, eaten_at desc)`. Check constraints enforce valid meal types, non-negative nutrients and length limits. |
+| `settings` | `user_id` | `calorie_goal`, `protein_goal`, `carbs_goal`, `fat_goal`, `fiber_goal` | One row per user; a missing row means default goals. Written with upsert. |
+
+`user_id` defaults to `auth.uid()` and references `auth.users` with `on delete cascade`, so clients never supply it and deleting a user removes their data. "Today" is computed from the device's local timezone and queried as an `eaten_at` range, so the day boundary follows the user, not the server.
+
+### State management
+
+The client store caches only the current day's meals, the goals and a total meal count. Every mutation writes to Supabase first and then re-reads, so the cache always reflects the database rather than an optimistic guess. A sequence counter ensures that an older read finishing late cannot overwrite a newer one. The store also reloads when the app returns to the foreground and when the local date rolls over at midnight.
+
+### Security model
+
+- **Secret isolation.** `GEMINI_API_KEY` is read only by `/api/token` and never reaches the client. The browser receives a token valid for one session, which must start within 60 seconds and expires after 30 minutes.
+- **Authenticated token issuance.** Tokens are issued only after server-side JWT verification, so an exposed deployment URL cannot be used to spend the API quota.
+- **Database-enforced authorization.** Each table has Row Level Security with one policy per operation (`select`, `insert`, `update`, `delete`), all scoped to `user_id = auth.uid()`. The Supabase URL and publishable key are public by design; RLS, not the proxy, is the enforcement boundary.
+- **Session hygiene.** Responses that set auth cookies carry `no-store` cache headers so a CDN cannot serve one user's session to another. Post-login redirects accept same-site paths only. Signing out performs a full page load to clear all in-memory user data.
+
+### Resilience
+
+- **Session rotation.** Gemini Live connections are rotated by the server roughly every 10 minutes. The client keeps the latest session-resumption handle, reconnects on `goAway` or an unexpected close, and resumes the conversation (up to 3 attempts with backoff).
+- **Long sessions.** Context-window compression is enabled, so audio and video sessions are not capped at the API's default duration.
+- **Stale events.** A generation counter, incremented on every connect and teardown, discards callbacks and tool results that belong to a superseded connection.
+- **Graceful degradation.** If the camera is unavailable the session continues voice-only; device, permission, HTTPS and quota failures surface as specific user-facing messages.
+- **Cost control.** Sessions end automatically after 2 minutes without conversation. High-resolution label frames are sent only while label mode is active.
 
 ---
 
