@@ -11,6 +11,15 @@ const TYPE_STYLES: Record<Meal["mealType"], string> = {
   snack: "bg-fat/15 text-fat-ink",
 };
 
+async function confirmDelete(meal: Meal) {
+  if (!confirm(`Delete "${meal.name}"?`)) return;
+  try {
+    await deleteMeal(meal.id);
+  } catch (err) {
+    alert(err instanceof Error ? err.message : "Couldn't delete that meal.");
+  }
+}
+
 export function MealList({ meals }: { meals: Meal[] }) {
   if (meals.length === 0) {
     return (
@@ -53,7 +62,7 @@ export function MealList({ meals }: { meals: Meal[] }) {
               </span>
               <button
                 type="button"
-                onClick={() => confirm(`Delete "${meal.name}"?`) && deleteMeal(meal.id)}
+                onClick={() => void confirmDelete(meal)}
                 className="-mr-1.5 rounded-full p-1.5 text-muted transition hover:bg-track hover:text-foreground"
                 aria-label={`Delete ${meal.name}`}
               >

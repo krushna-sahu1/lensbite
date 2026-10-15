@@ -18,6 +18,13 @@ export function localDateKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Start and end of the local calendar day as ISO timestamps, for querying `eaten_at`. */
+export function localDayRange(date: Date): { from: string; to: string } {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
 export function mealsOnDay(meals: Meal[], day: Date): Meal[] {
   const key = localDateKey(day);
   return meals

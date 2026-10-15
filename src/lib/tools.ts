@@ -1,7 +1,8 @@
 /**
  * Function-calling tools for the Live agent. Declarations are sent to Gemini in
  * the session config; calls are executed right here in the browser against
- * localStorage, and the result is sent back with session.sendToolResponse().
+ * Supabase (as the signed-in user, so Row Level Security applies), and the
+ * result is sent back with session.sendToolResponse().
  */
 import {
   Behavior,
@@ -11,7 +12,7 @@ import {
   type FunctionResponse,
   type Schema,
 } from "@google/genai";
-import { addMeal, deleteLastMealToday, getSnapshot } from "./storage";
+import { addMeal, deleteLastMealToday, getSnapshot, refresh, type StoreSnapshot } from "./storage";
 import { parseProductRating } from "./label";
 import { mealsOnDay, remaining, sumNutrients, toNonNegativeNumber } from "./nutrition";
 import { MEAL_TYPES, type Meal, type MealType, type ProductRating } from "./types";
@@ -112,8 +113,8 @@ export const TOOL_DECLARATIONS: FunctionDeclaration[] = [
   },
 ];
 
-function todaySummary() {
-  const { meals, goals } = getSnapshot();
+/** Today's log from a snapshot. Pass a fresh one from refresh() to read straight from Supabase. */
+function todaySummary({ meals, goals }: StoreSnapshot = getSnapshot()) {
   const today = mealsOnDay(meals, new Date());
   const totals = sumNutrients(today);
   return {
@@ -145,15 +146,15 @@ export interface ToolResult {
   product?: ProductRating;
 }
 
-/** Executes one function call from the model. Never throws. */
-export function runTool(call: FunctionCall): ToolResult {
+/** Executes one function call from the model. Never rejects. */
+export async function runTool(call: FunctionCall): Promise<ToolResult> {
   const respond = (response: Record<string, unknown>) => ({ id: call.id, name: call.name, response });
   const args = (call.args ?? {}) as Record<string, unknown>;
 
   try {
     switch (call.name) {
       case "log_meal": {
-        const meal: Meal = addMeal({
+        const meal: Meal = await addMeal({
           name: String(args.name ?? "").trim() || "Meal",
           mealType: (MEAL_TYPES as readonly string[]).includes(String(args.meal_type))
             ? (args.meal_type as MealType)
@@ -165,6 +166,7 @@ export function runTool(call: FunctionCall): ToolResult {
           fiber_g: toNonNegativeNumber(args.fiber_g),
           notes: typeof args.notes === "string" ? args.notes : undefined,
         });
+        // addMeal re-read today's log from Supabase, so the snapshot is current.
         const summary = todaySummary();
         return {
           response: respond({
@@ -180,10 +182,10 @@ export function runTool(call: FunctionCall): ToolResult {
       }
 
       case "get_today_summary":
-        return { response: respond({ output: todaySummary() }) };
+        return { response: respond({ output: todaySummary(await refresh()) }) };
 
       case "delete_last_meal": {
-        const removed = deleteLastMealToday();
+        const removed = await deleteLastMealToday();
         if (!removed) {
           return { response: respond({ output: { deleted: null, message: "No meals logged today." } }) };
         }
