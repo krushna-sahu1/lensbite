@@ -15,15 +15,17 @@ It reads the nutrition table and ingredients, scores the product 0–10 by voice
 - **No nutrition database:** the AI estimates everything itself, as ranges.
 - **Your data in Supabase:** meals and goals live in Postgres, behind Google sign-in. Row Level Security lets each user read and write only their own rows (`user_id = auth.uid()`).
 - **Your API key stays on the server:** signed-in users get a short-lived *ephemeral token* from `/api/token`; `GEMINI_API_KEY` never reaches the browser.
+- **See the patterns:** the Insights tab charts your calories by day, week and month, so you can tell whether the last month was better than the one before it.
 
 ## Features
 
 | Screen | What it does |
 | --- | --- |
 | **Login** | Tap **Continue with Google** and pick an account, and you're in. Every other page needs a session. |
-| **Home** | Today's calories / protein / carbs / fat / fiber vs. goals, meal list (tap 🗑 to delete), big **Go Live** button |
+| **Home** | Greeting, a big animated calorie ring, protein / carbs / fat / fiber vs. goals, the day's meals grouped by type (swipe a meal left to delete it, then **Undo**), a 7-day sparkline that leads to Insights, and a pulsing **Go Live** button. |
 | **Live** | Rear-camera preview, always-on mic, live transcript of both sides, End button. Streams 16 kHz PCM audio continuously and ~1 JPEG frame/sec. AI audio plays immediately and stops the moment you talk over it. Shows the **product card** after a label scan, plus a **Label** button for label mode. |
-| **Settings** | Daily calorie/macro goals, export/import logs as JSON, move meals left in this browser by the old localStorage version into your account, clear data, sign out |
+| **Insights** | **Day / Week / Month** views of your log: a bar chart of daily calories with a dashed goal line, a month calendar heatmap coloured by how much of your goal each day hit, an area chart, a protein/carbs/fat donut, stat cards (daily average, best day, days on target, streak, change vs. the previous period), and a bottom sheet with a day's meals when you tap a day. |
+| **Settings** | Daily calorie/macro goals, light/dark/system theme, export/import logs as JSON, move meals left in this browser by the old localStorage version into your account, clear data, sign out |
 
 Agent tools (function calling, run in the browser against Supabase as the signed-in user):
 
@@ -32,6 +34,25 @@ Agent tools (function calling, run in the browser against Supabase as the signed
 - `delete_last_meal()`
 - `scan_label()`: switches to label mode before the agent reads a pack
 - `show_product_rating(product_name, score, verdict, unit, serving_size, per_serving, per_100, pros, cons, ingredient_warnings, …)`: shows the product card (never saved)
+
+## Insights
+
+The **Insights** tab (bottom navigation) turns your food log into numbers you can act on.
+
+- **Day / Week / Month.** The segmented control switches the period. Week and Month can be walked backwards and forwards with the arrows; the next arrow is disabled once you'd be moving into the future, and **Back to today** jumps back.
+- **Week:** a bar chart of the calories eaten each day, with a dashed line at your goal. Tapping a bar (or one of the day buttons underneath it) opens that day's meals.
+- **Month:** a calendar heatmap where every square is a day, coloured by how much of your goal it hit, plus an area chart of the month's calories.
+- **Macro split:** a donut of protein, carbs and fat for the period, weighted by energy (4 kcal per gram of protein and carbs, 9 per gram of fat).
+- **Stat cards:** daily average, best day, days on target, the current streak, and how the period compares with the one before it.
+- **A day, on tap:** the bottom sheet lists everything logged that day.
+
+How the numbers are worked out (all in `src/lib/storage.ts`, all in the phone's own timezone):
+
+- Days are local calendar days, and every day in the period is included — days without meals are filled with zeros, so the charts always show the full period.
+- **On target** means the day has meals and stayed at or below the calorie goal.
+- The **streak** counts back from the end of the period. Days with no meals haven't happened yet, so they don't break it; a day that missed the goal does.
+- The **daily average** is the period total divided by the number of days in the period.
+- The **comparison** is the change in total calories against the equivalent previous period (yesterday, last week, last month).
 
 ## Product label scanner
 
@@ -70,6 +91,8 @@ Requires Node.js 20+.
    ```
 
    The migrations create `meals` and `settings` with Row Level Security on and one policy per operation, all `user_id = auth.uid()`.
+
+   No extra migration is needed for the Insights screen: `meals` already has a composite index on `(user_id, eaten_at desc)`, which is exactly what the date-range queries on that screen use.
 
 3. **Configure sign-in** in the Supabase dashboard:
 
@@ -172,10 +195,23 @@ On iPhone, a home-screen app keeps its own cookies, separate from Safari's. If G
 | `src/lib/tools.ts` | Tool declarations + browser-side handlers (read/write Supabase) |
 | `src/lib/label.ts` | Label scanner: parses `show_product_rating`, fills in per-100 g / per-serving values, traffic-light thresholds |
 | `src/components/ProductCard.tsx` | Product card overlay on the Live screen |
-| `src/lib/storage.ts` | Supabase-backed store (today's meals, goals, import/export, moving old localStorage data) + `useStore()` hook |
+| `src/lib/storage.ts` | Supabase-backed store (today's meals, goals, import/export, moving old localStorage data) + `useStore()` hook, plus the date-range and aggregation helpers the Insights screen is built on |
 | `src/lib/config.ts` | Model name, voice, timeouts, frame size; tweak here |
 | `src/app/page.tsx`, `src/components/*` | Home screen and Live overlay UI |
-| `src/app/settings/page.tsx` | Goals, export/import, sign out |
+| `src/app/insights/page.tsx`, `src/components/insights/*` | Day / Week / Month charts, stat cards and the day sheet |
+| `src/app/settings/page.tsx` | Goals, appearance, export/import, sign out |
+| `src/components/BottomNav.tsx`, `src/components/ui.tsx`, `src/components/Sheet.tsx`, `src/components/ConfirmDialog.tsx`, `src/components/Toast.tsx` | Shared UI: bottom navigation, cards, bottom sheet, confirm dialog, toasts |
+| `src/app/globals.css` | Design tokens (light + dark), keyframes, reduced-motion rules |
+
+### Design system
+
+Everything visual hangs off a small set of CSS custom properties in `src/app/globals.css`:
+
+- **Tokens.** `--background`, `--surface`, `--foreground`, `--muted`, `--line`, `--track` for the greys; `--accent`, `--protein`, `--carbs`, `--fat`, `--fiber` for the brand and the macros; `--heat-0` … `--heat-4` for the calendar heatmap. Tailwind picks them up through `@theme inline`, so `bg-surface`, `text-muted` and friends work like any other colour.
+- **Light and dark.** The dark palette lives in `:root[data-theme="dark"]`. A tiny script in `src/app/layout.tsx` sets that attribute before the first paint (so there's no flash), and **Settings → Appearance** switches between Light, Dark and System. The choice is kept in `localStorage` under `lensbite:theme`.
+- **Motion.** Animations are short and subtle. A global `prefers-reduced-motion` rule turns off every CSS animation, and the charts check `useReducedMotion()` before animating.
+- **Touch and safe areas.** Buttons are at least 44 px tall, and the bottom navigation and the **Go Live** button respect `env(safe-area-inset-bottom)` so they clear the home indicator on iOS.
+- **Keyboard.** Dialogs and the bottom sheet trap focus and close on <kbd>Esc</kbd>; charts are labelled and the Recharts charts get their arrow-key navigation from `accessibilityLayer`.
 
 ## Customizing
 
@@ -205,3 +241,4 @@ The agent's personality and rules are plain text in `src/lib/prompt.ts`.
 - Ephemeral tokens are a Preview feature of the Gemini API. If token creation or connection starts failing after an SDK upgrade, check <https://ai.google.dev/gemini-api/docs/ephemeral-tokens>.
 - Data lives in your Supabase project, so it follows you to any device you sign in on. **Settings → Export JSON** still gives you a portable backup.
 - `src/lib/supabase/database.types.ts` is written by hand to match the migrations. After changing a table, update it or regenerate it with `npx supabase gen types typescript --project-id <ref>`.
+- The charts use [Recharts](https://recharts.org). They're loaded on demand (`next/dynamic`) so the rest of the app doesn't pay for them, and they read their colours from the CSS tokens so they follow the light/dark theme.

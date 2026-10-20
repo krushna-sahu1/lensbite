@@ -52,7 +52,7 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
       <header className="relative z-10 flex items-start justify-between gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 pb-8 pt-[max(env(safe-area-inset-top),1rem)]">
         <div className="flex flex-col gap-2">
           {!over && (
-            <span className="inline-flex w-fit items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 text-sm font-medium backdrop-blur">
+            <span className="inline-flex w-fit items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-sm font-medium backdrop-blur-md">
               <span
                 className={`size-2 rounded-full ${
                   state.status === "live" ? "animate-pulse bg-red-500" : "animate-pulse bg-amber-400"
@@ -73,8 +73,8 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
             <button
               type="button"
               onClick={() => controller.toggleLabelMode()}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium backdrop-blur transition ${
-                state.labelMode ? "bg-accent text-black" : "bg-black/40 hover:bg-black/60"
+              className={`inline-flex min-h-11 items-center gap-1.5 rounded-full px-4 text-sm font-semibold backdrop-blur-md transition ${
+                state.labelMode ? "bg-accent text-black" : "bg-white/15 hover:bg-white/25"
               }`}
               aria-pressed={state.labelMode}
             >
@@ -84,7 +84,7 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
             <button
               type="button"
               onClick={() => controller.end()}
-              className="rounded-full bg-black/40 p-2.5 backdrop-blur transition hover:bg-black/60"
+              className="flex size-11 items-center justify-center rounded-full bg-white/15 backdrop-blur-md transition hover:bg-white/25"
               aria-label="Close"
             >
               <CloseIcon />
@@ -103,7 +103,7 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
           <ProductCard key={state.product.ratedAt} product={state.product} onClose={() => controller.dismissProduct()} />
         )}
         {!over && !state.product && state.labelMode && (
-          <p className="mx-auto w-fit rounded-full bg-black/50 px-3.5 py-1.5 text-center text-xs text-white/85 backdrop-blur">
+          <p className="mx-auto w-fit rounded-full bg-white/15 px-3.5 py-1.5 text-center text-xs text-white/85 backdrop-blur-md">
             Label mode: fill the screen with the label and hold steady
           </p>
         )}
@@ -119,7 +119,7 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
           {/* Shorter transcript while a product card needs the room. */}
           <div
             ref={transcriptRef}
-            className={`mask-fade-top mb-4 space-y-2 overflow-y-auto pr-1 ${state.product ? "max-h-[18vh]" : "max-h-[38vh]"}`}
+            className={`mask-fade-top mb-4 space-y-2.5 overflow-y-auto pr-1 ${state.product ? "max-h-[18vh]" : "max-h-[38vh]"}`}
           >
             {state.transcript.length === 0 && state.status === "live" && (
               <p className="text-center text-sm text-white/70">
@@ -137,10 +137,10 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
               ) : (
                 <div key={entry.id} className={`flex ${entry.role === "user" ? "justify-end" : "justify-start"}`}>
                   <p
-                    className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[15px] leading-snug ${
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-[15px] leading-snug backdrop-blur-md ${
                       entry.role === "user"
-                        ? "rounded-br-md bg-white/20 backdrop-blur"
-                        : "rounded-bl-md bg-black/50 backdrop-blur"
+                        ? "rounded-br-md bg-accent/90 text-black"
+                        : "rounded-bl-md bg-white/15 text-white"
                     } ${entry.final ? "" : "opacity-80"}`}
                   >
                     {entry.text}
@@ -150,12 +150,12 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
             )}
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <ActivityIndicator speaking={state.modelSpeaking} micLevel={state.micLevel} busy={busy} />
             <button
               type="button"
               onClick={() => controller.end()}
-              className="flex h-16 items-center gap-2 rounded-full bg-red-600 px-8 text-lg font-semibold shadow-lg shadow-red-900/40 transition active:scale-95"
+              className="flex h-14 items-center gap-2 rounded-full bg-red-600/90 px-7 text-lg font-semibold shadow-lg shadow-red-900/40 backdrop-blur-md transition active:scale-95"
             >
               End
             </button>
@@ -172,22 +172,22 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
 
       {/* Ended / error card */}
       {over && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 p-6">
-          <div className="w-full max-w-sm rounded-3xl bg-zinc-900 p-6 text-center ring-1 ring-white/10">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl bg-white/10 p-6 text-center ring-1 ring-white/15 backdrop-blur-xl">
             <p className="text-lg font-semibold">{STATUS_LABEL[state.status]}</p>
             <p className="mt-2 text-sm text-white/70">{state.message}</p>
             <div className="mt-6 flex gap-3">
               <button
                 type="button"
                 onClick={() => controller.dismiss()}
-                className="flex-1 rounded-full bg-white/10 py-3 font-medium transition hover:bg-white/15"
+                className="min-h-11 flex-1 rounded-full bg-white/15 py-3 font-medium transition hover:bg-white/25"
               >
                 Back
               </button>
               <button
                 type="button"
                 onClick={() => void controller.start()}
-                className="flex-1 rounded-full bg-accent py-3 font-semibold text-black transition active:scale-95"
+                className="min-h-11 flex-1 rounded-full bg-accent py-3 font-semibold text-black transition active:scale-95"
               >
                 Go Live again
               </button>
@@ -199,36 +199,34 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
   );
 }
 
-/** Left of the End button: animated bars while the AI talks, mic level otherwise. */
+/** Left of the End button: the animated waveform while the AI talks, mic level otherwise. */
 function ActivityIndicator({ speaking, micLevel, busy }: { speaking: boolean; micLevel: number; busy: boolean }) {
   if (busy) return <div className="w-24" />;
   return (
-    <div className="flex w-24 items-center gap-2 text-xs text-white/80">
-      {speaking ? (
-        <>
-          <span className="flex h-6 items-end gap-0.5" aria-hidden="true">
-            {[0, 1, 2, 3].map((i) => (
-              <span
-                key={i}
-                className="w-1 animate-[speak_0.9s_ease-in-out_infinite] rounded-full bg-accent"
-                style={{ animationDelay: `${i * 0.15}s` }}
-              />
-            ))}
-          </span>
-          Speaking
-        </>
-      ) : (
-        <>
-          <span className="relative flex size-9 items-center justify-center rounded-full bg-white/10">
+    <div className="flex w-24 flex-col items-start gap-1 text-xs text-white/80">
+      <span className="flex h-8 items-center gap-1" aria-hidden="true">
+        {Array.from({ length: 14 }, (_, i) => {
+          const level = Math.max(0.12, Math.min(1, micLevel * (0.6 + ((i % 5) / 5))));
+          return (
             <span
-              className="absolute inset-0 rounded-full bg-white/25 transition-transform duration-100"
-              style={{ transform: `scale(${1 + micLevel * 0.6})`, opacity: 0.3 + micLevel }}
+              key={i}
+              className={`w-1 origin-center rounded-full ${speaking ? "bg-accent" : "bg-white/70"}`}
+              style={
+                speaking
+                  ? {
+                      height: "100%",
+                      animation: `wave ${0.7 + (i % 4) * 0.12}s ease-in-out ${i * 0.06}s infinite`,
+                    }
+                  : { height: `${level * 100}%`, transition: "height 80ms linear" }
+              }
             />
-            <MicIcon width={16} height={16} className="relative" />
-          </span>
-          Listening
-        </>
-      )}
+          );
+        })}
+      </span>
+      <span className="flex items-center gap-1.5">
+        <MicIcon width={13} height={13} />
+        {speaking ? "Speaking" : "Listening"}
+      </span>
     </div>
   );
 }

@@ -11,6 +11,12 @@ const LEVEL_TEXT: Record<NutrientLevel, string> = {
   bad: "text-fat",
 };
 
+const LEVEL_DOT: Record<NutrientLevel, string> = {
+  good: "bg-accent",
+  medium: "bg-carbs",
+  bad: "bg-fat",
+};
+
 const LEVEL_SCORE: Record<NutrientLevel, string> = {
   good: "bg-accent text-black",
   medium: "bg-carbs text-black",
@@ -43,10 +49,11 @@ export function ProductCard({ product, onClose }: { product: ProductRating; onCl
   ]
     .filter(Boolean)
     .join(" · ");
+  const level = scoreLevel(product.score);
 
   return (
     <section
-      className="rounded-3xl bg-black/65 text-white ring-1 ring-white/10 backdrop-blur-md"
+      className="overflow-hidden rounded-3xl bg-white/12 text-white ring-1 ring-white/20 shadow-2xl backdrop-blur-2xl"
       aria-label={`Rating for ${product.name}`}
     >
       <div className="flex items-start gap-3 p-4">
@@ -57,16 +64,16 @@ export function ProductCard({ product, onClose }: { product: ProductRating; onCl
           aria-expanded={open}
         >
           <span
-            className={`flex size-14 shrink-0 flex-col items-center justify-center rounded-2xl ${LEVEL_SCORE[scoreLevel(product.score)]}`}
+            className={`flex size-16 shrink-0 flex-col items-center justify-center rounded-2xl shadow-lg ${LEVEL_SCORE[level]}`}
           >
-            <span className="text-2xl font-bold leading-none tabular-nums">{product.score}</span>
+            <span className="text-3xl font-bold leading-none tabular-nums">{product.score}</span>
             <span className="text-[10px] font-semibold opacity-70">/ 10</span>
           </span>
           <span className="min-w-0 flex-1">
-            <span className="line-clamp-2 font-semibold leading-snug">{product.name}</span>
-            {product.brand && <span className="block truncate text-xs text-white/60">{product.brand}</span>}
+            <span className="line-clamp-2 text-base font-semibold leading-snug">{product.name}</span>
+            {product.brand && <span className="mt-0.5 block truncate text-xs text-white/60">{product.brand}</span>}
             {product.verdict && (
-              <span className={`mt-1 text-sm leading-snug text-white/85 ${open ? "block" : "line-clamp-1"}`}>
+              <span className={`mt-1.5 text-sm leading-snug text-white/85 ${open ? "block" : "line-clamp-1"}`}>
                 {product.verdict}
               </span>
             )}
@@ -74,13 +81,13 @@ export function ProductCard({ product, onClose }: { product: ProductRating; onCl
           <ChevronDownIcon
             width={18}
             height={18}
-            className={`mt-1 shrink-0 text-white/60 transition-transform ${open ? "rotate-180" : ""}`}
+            className={`mt-1 shrink-0 text-white/60 transition-transform duration-300 ${open ? "rotate-180" : ""}`}
           />
         </button>
         <button
           type="button"
           onClick={onClose}
-          className="-mr-1 -mt-1 rounded-full p-1.5 text-white/70 transition hover:bg-white/10 hover:text-white"
+          className="-mr-1 -mt-1 flex size-11 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/15 hover:text-white"
           aria-label="Close product card"
         >
           <CloseIcon width={18} height={18} />
@@ -88,8 +95,9 @@ export function ProductCard({ product, onClose }: { product: ProductRating; onCl
       </div>
 
       {open && (
-        <div className="space-y-3 border-t border-white/10 px-4 pb-4 pt-3 text-sm">
+        <div className="space-y-4 border-t border-white/15 px-4 pb-4 pt-4 text-sm">
           {serving && <p className="text-xs text-white/60">Serving: {serving}</p>}
+
           {rows.length > 0 && (
             <table className="w-full tabular-nums">
               <thead>
@@ -101,14 +109,21 @@ export function ProductCard({ product, onClose }: { product: ProductRating; onCl
               </thead>
               <tbody>
                 {rows.map(({ key, label, unit: u, indent }) => {
-                  const level = nutrientLevel(key, per100, unit);
+                  const nutrient = nutrientLevel(key, per100, unit);
                   return (
-                    <tr key={key} className="border-t border-white/5">
-                      <td className={`py-1 ${indent ? "pl-3 text-white/70" : ""}`}>{label}</td>
-                      <td className={`py-1 text-right ${level ? `font-medium ${LEVEL_TEXT[level]}` : ""}`}>
+                    <tr key={key} className="border-t border-white/10">
+                      <td className={`py-1.5 ${indent ? "pl-3 text-white/70" : ""}`}>
+                        <span className="inline-flex items-center gap-1.5">
+                          {nutrient && (
+                            <span className={`size-1.5 rounded-full ${LEVEL_DOT[nutrient]}`} aria-hidden="true" />
+                          )}
+                          {label}
+                        </span>
+                      </td>
+                      <td className={`py-1.5 text-right ${nutrient ? `font-semibold ${LEVEL_TEXT[nutrient]}` : ""}`}>
                         {formatValue(per100[key], u)}
                       </td>
-                      <td className="py-1 pl-3 text-right text-white/85">{formatValue(perServing[key], u)}</td>
+                      <td className="py-1.5 pl-3 text-right text-white/85">{formatValue(perServing[key], u)}</td>
                     </tr>
                   );
                 })}
@@ -127,9 +142,9 @@ export function ProductCard({ product, onClose }: { product: ProductRating; onCl
             <div>
               <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/50">Ingredient warnings</p>
               <ul className="flex flex-wrap gap-1.5">
-                {product.ingredientWarnings.map((w) => (
-                  <li key={w} className="rounded-full bg-carbs/20 px-2.5 py-1 text-xs text-carbs">
-                    {w}
+                {product.ingredientWarnings.map((warning) => (
+                  <li key={warning} className="rounded-full bg-carbs/20 px-2.5 py-1 text-xs text-carbs">
+                    {warning}
                   </li>
                 ))}
               </ul>

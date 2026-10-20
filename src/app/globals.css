@@ -1,16 +1,30 @@
 @import "tailwindcss";
 
-/* Design tokens. Light by default, dark when the phone is in dark mode. */
+/*
+ * Design tokens.
+ *
+ * Light is the default. Dark can be forced with `data-theme="dark"` on <html>
+ * (the Appearance setting in Settings), or follow the phone's system setting
+ * when no explicit choice is stored (the script in layout.tsx sets
+ * `data-theme` to "light" or "dark" either way).
+ */
 :root {
-  --background: #f6f5f1;
-  --foreground: #1c1b19;
-  --surface: #ffffff;
-  --muted: #74716a;
-  --line: #e7e4dc;
-  --track: #eeebe4;
+  color-scheme: light;
 
-  --accent: #4ade80; /* calories / brand */
+  /* Surfaces */
+  --background: #f3f4f1;
+  --surface: #ffffff;
+  --surface-2: #fafaf8;
+  --foreground: #17181a;
+  --muted: #6d6f68;
+  --line: #e5e6e0;
+  --track: #eceee9;
+  --shadow: 0 1px 2px rgb(23 24 26 / 0.04), 0 8px 24px -12px rgb(23 24 26 / 0.12);
+
+  /* Brand + nutrients */
+  --accent: #4ade80;
   --accent-ink: #15803d;
+  --accent-soft: #ecfdf5;
   --protein: #38bdf8;
   --protein-ink: #0369a1;
   --carbs: #fbbf24;
@@ -18,33 +32,56 @@
   --fat: #fb7185;
   --fat-ink: #be123c;
   --fiber: #a78bfa;
+
+  /* Heatmap steps, from "nothing logged" to "well over goal" */
+  --heat-0: #eceee9;
+  --heat-1: #bbf7d0;
+  --heat-2: #4ade80;
+  --heat-3: #fbbf24;
+  --heat-4: #fb7185;
+
+  /* Glass (used on top of the camera feed) */
+  --glass: rgb(255 255 255 / 0.14);
+  --glass-strong: rgb(255 255 255 / 0.22);
+  --glass-ink: #ffffff;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0e0f0d;
-    --foreground: #f1f0ec;
-    --surface: #181a17;
-    --muted: #9b998f;
-    --line: #2a2c28;
-    --track: #262824;
+:root[data-theme="dark"] {
+  color-scheme: dark;
 
-    --accent-ink: #86efac;
-    --protein-ink: #7dd3fc;
-    --carbs-ink: #fcd34d;
-    --fat-ink: #fda4af;
-  }
+  --background: #0d0f0e;
+  --surface: #171a18;
+  --surface-2: #1d211e;
+  --foreground: #f2f3ef;
+  --muted: #9a9c93;
+  --line: #2a2e2a;
+  --track: #242825;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+
+  --accent-ink: #86efac;
+  --accent-soft: #0f2a1b;
+  --protein-ink: #7dd3fc;
+  --carbs-ink: #fcd34d;
+  --fat-ink: #fda4af;
+
+  --heat-0: #242825;
+  --heat-1: #14532d;
+  --heat-2: #166534;
+  --heat-3: #92400e;
+  --heat-4: #9f1239;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-track: var(--track);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
   --color-protein: var(--protein);
   --color-protein-ink: var(--protein-ink);
   --color-carbs: var(--carbs);
@@ -52,14 +89,27 @@
   --color-fat: var(--fat);
   --color-fat-ink: var(--fat-ink);
   --color-fiber: var(--fiber);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-heat-0: var(--heat-0);
+  --color-heat-1: var(--heat-1);
+  --color-heat-2: var(--heat-2);
+  --color-heat-3: var(--heat-3);
+  --color-heat-4: var(--heat-4);
+  --font-sans: var(--font-app-sans);
+  --font-mono: var(--font-app-mono);
+  --shadow-card: var(--shadow);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Keyboard users get a visible focus ring everywhere. */
+:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
 }
 
 /* Bouncing bars shown while the AI is speaking. */
@@ -73,7 +123,91 @@ body {
   }
 }
 
+/* Waveform bars on the Live screen. */
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Slow halo behind the "Go Live" button. */
+@keyframes halo {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+/* Skeleton shimmer. */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Content that arrives on screen. */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Bottom sheet sliding in. */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
 /* Fade the top of the live transcript into the camera image. */
 .mask-fade-top {
   mask-image: linear-gradient(to bottom, transparent 0, black 2.5rem);
+}
+
+/* Scrollable skeleton placeholder. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--track);
+}
+
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  animation: shimmer 1.6s infinite;
+  content: "";
+}
+
+:where([data-theme="dark"]) .skeleton::after {
+  background-image: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.08), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
