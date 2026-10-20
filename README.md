@@ -13,14 +13,14 @@ Or turn a packaged food around, show the back of the pack, and say:
 It reads the nutrition table and ingredients, scores the product 0–10 by voice, and shows a product card on screen.
 
 - **No nutrition database:** the AI estimates everything itself, as ranges.
-- **Your data in Supabase:** meals and goals live in Postgres, behind an email magic-link login. Row Level Security lets each user read and write only their own rows (`user_id = auth.uid()`).
+- **Your data in Supabase:** meals and goals live in Postgres, behind Google sign-in. Row Level Security lets each user read and write only their own rows (`user_id = auth.uid()`).
 - **Your API key stays on the server:** signed-in users get a short-lived *ephemeral token* from `/api/token`; `GEMINI_API_KEY` never reaches the browser.
 
 ## Features
 
 | Screen | What it does |
 | --- | --- |
-| **Login** | Enter your email, tap the link in the email you get, and you're in. Every other page needs a session. |
+| **Login** | Tap **Continue with Google** and pick an account, and you're in. Every other page needs a session. |
 | **Home** | Today's calories / protein / carbs / fat / fiber vs. goals, meal list (tap 🗑 to delete), big **Go Live** button |
 | **Live** | Rear-camera preview, always-on mic, live transcript of both sides, End button. Streams 16 kHz PCM audio continuously and ~1 JPEG frame/sec. AI audio plays immediately and stops the moment you talk over it. Shows the **product card** after a label scan, plus a **Label** button for label mode. |
 | **Settings** | Daily calorie/macro goals, export/import logs as JSON, move meals left in this browser by the old localStorage version into your account, clear data, sign out |
@@ -71,11 +71,14 @@ Requires Node.js 20+.
 
    The migrations create `meals` and `settings` with Row Level Security on and one policy per operation, all `user_id = auth.uid()`.
 
-3. **Configure sign-in** in the Supabase dashboard under **Authentication → URL Configuration**:
-   - **Site URL:** your production URL (e.g. `https://lensbite.vercel.app`), or `http://localhost:3000` for now.
-   - **Redirect URLs:** add `http://localhost:3000/auth/confirm` and `https://<your-domain>/auth/confirm`.
+3. **Configure sign-in** in the Supabase dashboard:
 
-   Email (magic link) sign-in is on by default. Supabase's built-in email sender only allows a few emails per hour, which is fine for one user. Add your own SMTP server under **Authentication → Emails** if you hit the limit.
+   - **Google provider:** under **Authentication → Sign In / Providers → Google**, enable it and paste the **Client ID** and **Client Secret** from a Google Cloud OAuth client (<https://console.cloud.google.com/apis/credentials>). Add the **Authorized redirect URI** shown on that Supabase page (`https://<project-ref>.supabase.co/auth/v1/callback`) to the Google Cloud client.
+   - **URL Configuration:** set the **Site URL** and **Redirect URLs**:
+     - **Site URL:** your production URL, e.g. `https://lensbite.vercel.app`. This is the fallback Supabase uses for any redirect whose target it doesn't recognize, so it must be the deployed URL — *not* `localhost`.
+     - **Redirect URLs:** add every origin you sign in from, e.g. `https://<your-domain>/**` and `http://localhost:3000/**`. The app returns from Google through `/auth/callback`.
+
+   Sign-in uses Google, so there's no email sender to configure. You can turn off email sign-in under **Authentication → Sign In / Providers → Email**.
 
 4. **Install and configure:**
 
@@ -99,7 +102,7 @@ Requires Node.js 20+.
    npm run dev
    ```
 
-   Open <http://localhost:3000>, enter your email, and open the sign-in link **in the same browser**. `localhost` counts as a secure origin, so camera and mic work on your computer.
+   Open <http://localhost:3000>, tap **Continue with Google**, and pick an account. `localhost` counts as a secure origin, so camera and mic work on your computer.
 
 6. **Lock it to you** (recommended): once you've signed in the first time, turn off **Authentication → Sign In / Providers → Allow new users to sign up**. Otherwise anyone with your URL can create an account. They'd never see your data (RLS), but they could spend your Gemini quota.
 
@@ -118,18 +121,14 @@ Mobile browsers only allow camera/mic on **HTTPS**, so `http://192.168.x.x:3000`
 1. Push this folder to a GitHub repo.
 2. In Vercel: **Add New → Project**, import the repo (framework auto-detected as Next.js).
 3. Under **Environment Variables**, add `GEMINI_API_KEY`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-4. In Supabase, set the **Site URL** and add `https://<your-domain>/auth/confirm` to **Redirect URLs** (Setup step 3).
+4. In Supabase, set the **Site URL** and add `https://<your-domain>/**` to **Redirect URLs** (Setup step 3).
 5. Deploy, open the `https://….vercel.app` URL on your phone and sign in. On Android, *Add to Home Screen* gives an app-like experience (on iPhone, see the next section first).
 
 ### Signing in on a phone
 
-By default the magic link only works in the browser that asked for it (Supabase's PKCE flow keeps a secret in that browser). If your mail app opens links in its own browser, or you added the app to your home screen, sign-in can fail with "code verifier" errors. To make the link work in any browser, edit **Authentication → Emails → Magic Link** in Supabase and point the link at the app directly:
+Google sign-in opens Google's account picker and then returns to `/auth/callback` in the same browser. Supabase's PKCE flow keeps a secret in the browser that started the sign-in, so if the flow finishes in a different browser you'll see a "code verifier" error — use one browser for the whole round trip.
 
-```html
-<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email">Sign in to LensBite</a>
-```
-
-On iPhone, a home-screen app keeps its own cookies, separate from Safari's, and email links open in Safari. So a magic link signs in Safari, not the home-screen app. Use LensBite in Safari, or bookmark it there instead of adding it to the home screen.
+On iPhone, a home-screen app keeps its own cookies, separate from Safari's. If Google sign-in opens in Safari, the session lands in Safari, not the home-screen app. Use LensBite in Safari, or bookmark it there instead of adding it to the home screen.
 
 ### Protecting your deployment
 
@@ -162,7 +161,7 @@ On iPhone, a home-screen app keeps its own cookies, separate from Safari's, and 
 | --- | --- |
 | `src/app/api/token/route.ts` | Creates the ephemeral token for signed-in users (API key never leaves the server) |
 | `src/proxy.ts`, `src/lib/supabase/proxy.ts` | Refreshes the Supabase session on each request; sends signed-out visitors to `/login` |
-| `src/app/login/page.tsx`, `src/app/auth/confirm/route.ts` | Magic-link form, and where the email link lands to create the session |
+| `src/app/login/page.tsx`, `src/app/auth/callback/route.ts` | Google sign-in button, and the OAuth callback that exchanges the code for a session |
 | `src/lib/supabase/*` | Browser and server Supabase clients, env check, table types |
 | `supabase/migrations/*.sql` | `meals` and `settings` tables with Row Level Security |
 | `src/lib/live-session.ts` | **The core.** Connects to Gemini Live, streams mic/camera, plays audio, handles barge-in, tools, transcript, silence timeout, reconnects |
@@ -194,6 +193,7 @@ The agent's personality and rules are plain text in `src/lib/prompt.ts`.
 
 - **The AI keeps interrupting itself:** your phone's speaker is leaking into the mic. Lower the volume or use earbuds. Echo cancellation is requested, but some devices handle it better than others.
 - **"Permission … denied":** allow camera/mic for the site in your browser settings (iOS: *Settings → Safari → Camera/Microphone*), then tap **Go Live again**.
+- **Google sign-in bounces back to `/login`, or Google says the redirect URI is invalid:** add the origin you're on to **Authentication → URL Configuration → Redirect URLs** (Setup step 3), and make sure the Google Cloud OAuth client lists `https://<project-ref>.supabase.co/auth/v1/callback` as an **Authorized redirect URI**. Supabase falls back to the **Site URL** for unrecognized targets, so keep that set to the deployed URL.
 - **"Camera and microphone need a secure (HTTPS) connection":** see *Testing on your phone*.
 - **"quota exceeded":** you've hit the free-tier limit. Wait, or check usage in Google AI Studio.
 - **The agent keeps asking you to move closer to a label:** fill most of the screen with the nutrition table, avoid glare from overhead lights, and hold still for a second or two. Small, curved, or shiny packs are the hardest. Check that `LIVE_MEDIA_RESOLUTION` is still `MEDIA_RESOLUTION_HIGH`.
