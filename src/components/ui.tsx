@@ -5,7 +5,9 @@ import type { ReactNode } from "react";
 /** Elevated panel. The default surface for grouped content. */
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-3xl bg-surface p-5 shadow-card ring-1 ring-line ${className}`}>{children}</section>
+    <section className={`rounded-[1.75rem] bg-gradient-to-b from-surface to-surface-2 p-5 shadow-card ring-1 ring-line ${className}`}>
+      {children}
+    </section>
   );
 }
 
@@ -82,7 +84,7 @@ export function SegmentedControl<T extends string>({
             aria-checked={active}
             onClick={() => onChange(option.value)}
             className={`min-h-11 flex-1 rounded-xl px-3 text-sm font-semibold transition ${
-              active ? "bg-surface text-foreground shadow-sm" : "text-muted hover:text-foreground"
+              active ? "bg-gradient-to-b from-surface to-surface-2 text-foreground shadow-sm" : "text-muted hover:text-foreground"
             }`}
           >
             {option.label}
@@ -127,7 +129,7 @@ export function SecondaryButton({
   return (
     <button
       {...props}
-      className={`min-h-11 rounded-2xl bg-track px-5 font-semibold transition hover:brightness-95 disabled:opacity-60 ${className}`}
+      className={`min-h-11 rounded-2xl bg-track px-5 font-semibold transition hover:brightness-95 active:scale-[0.98] disabled:opacity-60 ${className}`}
     >
       {children}
     </button>

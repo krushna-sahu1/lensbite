@@ -36,9 +36,61 @@ export const MicIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** Breakfast: a hot cup. */
+export const CoffeeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z" />
+    <path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16" />
+    <path d="M8 3v2M12 3v2" />
+    <path d="M3 21h14" />
+  </Icon>
+);
+
+/** Lunch: a bowl. */
+export const BowlIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 11a9 9 0 0 0 18 0H3Z" />
+    <path d="M7 7c0-1.5 1-2 1-3.5M12 7c0-1.5 1-2 1-3.5M17 7c0-1.5 1-2 1-3.5" />
+    <path d="M5 21h14" />
+  </Icon>
+);
+
+/** Dinner: fork and knife. */
+export const DinnerIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M7 3v7M4 3v5a3 3 0 0 0 6 0V3M7 10v11" />
+    <path d="M17 3c-2 0-3 2-3 5s1 4 3 4v9" />
+  </Icon>
+);
+
+/** Snack: an apple. */
+export const AppleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 8c-1.5-2-4-2.5-6-1-2.5 2-2 7.5.5 10.5 1.5 1.8 3.5 1.8 5.5.8 2 1 4 1 5.5-.8 2.5-3 3-8.5.5-10.5-2-1.5-4.5-1-6 1Z" />
+    <path d="M12 8c0-2 1-3.5 3-4" />
+  </Icon>
+);
+
+/** Target, used for "days on target". */
+export const TargetIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <circle cx="12" cy="12" r="1" />
+  </Icon>
+);
+
 export const SettingsIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+  </Icon>
+);
+
+/** Cog/gear, used for the Settings shortcut in the Home header. */
+export const GearIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
   </Icon>
 );
 

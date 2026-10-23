@@ -1,10 +1,11 @@
 "use client";
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { useCountUp } from "@/lib/use-count-up";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 import type { Nutrients } from "@/lib/types";
 import { ChartTooltip } from "./ChartTooltip";
 import { useChartColors } from "./use-chart-colors";
-import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 /** Calories per gram, used to turn the macro split into a share of energy. */
 const KCAL_PER_GRAM = { protein: 4, carbs: 4, fat: 9 };
@@ -46,6 +47,7 @@ export function MacroDonut({ totals }: { totals: Nutrients }) {
     share: slice.share,
   }));
   const total = data.reduce((sum, entry) => sum + entry.value, 0);
+  const shown = Math.round(useCountUp(total));
   const fill = {
     protein: colors.protein ?? "#38bdf8",
     carbs: colors.carbs ?? "#fbbf24",
@@ -64,8 +66,8 @@ export function MacroDonut({ totals }: { totals: Nutrients }) {
               nameKey="name"
               innerRadius="64%"
               outerRadius="92%"
-              paddingAngle={3}
-              cornerRadius={6}
+              paddingAngle={2.5}
+              cornerRadius={8}
               stroke="none"
               isAnimationActive={!reduced}
               animationDuration={700}
@@ -78,22 +80,22 @@ export function MacroDonut({ totals }: { totals: Nutrients }) {
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-semibold tabular-nums tracking-tight">{total.toLocaleString()}</span>
-          <span className="text-[11px] uppercase tracking-wide text-muted">kcal from macros</span>
+          <span className="num-lg">{shown.toLocaleString()}</span>
+          <span className="label-caps mt-1">kcal from macros</span>
         </div>
       </div>
 
       <ul className="mt-4 grid grid-cols-3 gap-2">
         {slices.map((slice) => (
-          <li key={slice.key} className="rounded-2xl bg-track px-3 py-2 text-center">
+          <li key={slice.key} className="rounded-2xl bg-track/70 px-2.5 py-2.5 text-center ring-1 ring-line/60">
             <span
-              className="mx-auto mb-1.5 block size-2.5 rounded-full"
+              className="mx-auto mb-1.5 block size-2 rounded-full"
               style={{ background: fill[slice.key] }}
               aria-hidden="true"
             />
-            <span className="block text-[11px] font-medium text-muted">{slice.label}</span>
-            <span className="block text-sm font-semibold tabular-nums">{Math.round(slice.grams)}g</span>
-            <span className="block text-[11px] tabular-nums text-muted">
+            <span className="label-caps block">{slice.label}</span>
+            <span className="num-md mt-0.5 block">{Math.round(slice.grams)}g</span>
+            <span className="block text-[10px] font-medium text-muted tabular-nums">
               {slice.share > 0 ? `${Math.round(slice.share * 100)}%` : "—"}
             </span>
           </li>

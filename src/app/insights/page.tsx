@@ -2,7 +2,6 @@
 
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
-import { BottomNav } from "@/components/BottomNav";
 import { CalendarHeatmap } from "@/components/insights/CalendarHeatmap";
 import { DaySheet } from "@/components/insights/DaySheet";
 import { StatCards } from "@/components/insights/StatCards";
@@ -98,10 +97,10 @@ export default function InsightsPage() {
 
   return (
     <>
-      <main className="mx-auto w-full max-w-md px-4 pb-28 pt-[max(env(safe-area-inset-top),1.25rem)]">
+      <main className="mx-auto w-full max-w-md px-4 pb-nav pt-[max(env(safe-area-inset-top),1.25rem)]">
         <header className="mb-5">
-          <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
-          <p className="mt-0.5 text-sm text-muted">How your calories and macros are tracking.</p>
+          <h1 className="page-title">Insights</h1>
+          <p className="mt-1 text-sm text-muted">How your calories and macros are tracking.</p>
         </header>
 
         <SegmentedControl options={PERIODS} value={period} onChange={changePeriod} label="Period" />
@@ -230,6 +229,7 @@ export default function InsightsPage() {
                     goal: goals.calories,
                     onTarget: day.logged && day.calories <= goals.calories,
                     logged: day.logged,
+                    isToday: day.day === todayKey,
                   }))}
                   goal={goals.calories}
                   onSelectDay={setSelectedDay}
@@ -267,6 +267,7 @@ export default function InsightsPage() {
                       calories: day.calories,
                       goal: goals.calories,
                       logged: day.logged,
+                      isToday: day.day === todayKey,
                     }))}
                     goal={goals.calories}
                   />
@@ -288,8 +289,6 @@ export default function InsightsPage() {
           </Card>
         </div>
       </main>
-
-      <BottomNav />
 
       <DaySheet day={selected} goal={goals.calories} onClose={() => setSelectedDay(null)} />
     </>

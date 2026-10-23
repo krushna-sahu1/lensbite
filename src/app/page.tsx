@@ -2,10 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo } from "react";
-import { BottomNav } from "@/components/BottomNav";
 import { DailySummary } from "@/components/DailySummary";
-import { CameraIcon } from "@/components/icons";
-import { LiveView } from "@/components/LiveView";
+import { GearIcon } from "@/components/icons";
 import { MealList } from "@/components/MealList";
 import { Sparkline } from "@/components/Sparkline";
 import { Skeleton } from "@/components/ui";
@@ -19,11 +17,9 @@ import {
   useStore,
 } from "@/lib/storage";
 import { useNow } from "@/lib/use-now";
-import { useLiveSession } from "@/lib/use-live-session";
 
 export default function Home() {
   const { meals, goals, loaded, error, day, mealCount } = useStore();
-  const { controller, state } = useLiveSession();
 
   const now = useNow(); // null while server-rendering
   const today = useMemo(() => (now ? mealsOnDay(meals, now) : []), [meals, now]);
@@ -45,14 +41,21 @@ export default function Home() {
 
   return (
     <>
-      <main className="mx-auto w-full max-w-md px-4 pb-44 pt-[max(env(safe-area-inset-top),1.5rem)]">
-        <header className="mb-6">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-tight">
-            {now ? greeting(now) : "Welcome back"}
-          </h1>
-          <p className="mt-0.5 text-sm text-muted">
-            {now?.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
-          </p>
+      <main className="mx-auto w-full max-w-md px-4 pb-nav pt-[max(env(safe-area-inset-top),1.5rem)]">
+        <header className="mb-6 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="page-title">{now ? greeting(now) : "Welcome back"}</h1>
+            <p className="mt-1 text-sm text-muted">
+              {now?.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
+            </p>
+          </div>
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-surface text-muted shadow-card ring-1 ring-line transition hover:text-foreground"
+          >
+            <GearIcon width={20} height={20} />
+          </Link>
         </header>
 
         {error && (
@@ -71,16 +74,16 @@ export default function Home() {
         )}
 
         {loaded ? (
-          <DailySummary totals={totals} goals={goals} />
+          <DailySummary totals={totals} goals={goals} mealCount={today.length} />
         ) : (
-          <div className="rounded-3xl bg-surface p-5 shadow-card ring-1 ring-line">
-            <Skeleton className="mx-auto size-44 rounded-full" />
+          <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-accent-soft via-surface to-surface-2 p-5 shadow-hero ring-1 ring-accent/15 sm:p-6">
+            <Skeleton className="mx-auto size-44 rounded-full sm:size-52" />
             <Skeleton className="mx-auto mt-3 h-4 w-40" />
-            <div className="mt-6 grid grid-cols-2 gap-4">
-              <Skeleton className="h-10" />
-              <Skeleton className="h-10" />
-              <Skeleton className="h-10" />
-              <Skeleton className="h-10" />
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <Skeleton className="h-20 rounded-2xl" />
+              <Skeleton className="h-20 rounded-2xl" />
+              <Skeleton className="h-20 rounded-2xl" />
+              <Skeleton className="h-20 rounded-2xl" />
             </div>
           </div>
         )}
@@ -102,27 +105,6 @@ export default function Home() {
           </div>
         )}
       </main>
-
-      {/* Sticky "Go Live" button, floating above the bottom navigation. */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[max(env(safe-area-inset-bottom),4.75rem)]">
-        <button
-          type="button"
-          // start() must run directly in the tap handler so mobile browsers allow audio.
-          onClick={() => void controller.start()}
-          className="pointer-events-auto relative flex h-14 items-center justify-center gap-2.5 rounded-full bg-foreground px-9 text-base font-semibold text-background shadow-2xl transition active:scale-[0.97]"
-        >
-          <span
-            className="absolute inset-0 -z-10 animate-[halo_2.6s_ease-out_infinite] rounded-full bg-accent/70"
-            aria-hidden="true"
-          />
-          <CameraIcon width={21} height={21} />
-          Go Live
-        </button>
-      </div>
-
-      <BottomNav />
-
-      {state.status !== "idle" && <LiveView controller={controller} state={state} />}
     </>
   );
 }

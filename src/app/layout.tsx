@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import { BottomNav } from "@/components/BottomNav";
+import { LiveSessionProvider } from "@/components/LiveSessionProvider";
 import { themeScript } from "@/lib/theme";
 import "./globals.css";
 
@@ -42,7 +44,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Applies the saved theme before the first paint (no flash of light mode). */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="min-h-full font-sans">{children}</body>
+      <body className="min-h-full font-sans">
+        <LiveSessionProvider>
+          {children}
+          <BottomNav />
+        </LiveSessionProvider>
+      </body>
     </html>
   );
 }

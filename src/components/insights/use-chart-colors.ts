@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
  */
 const CHART_VARS = {
   accent: "--accent",
+  accentInk: "--accent-ink",
   protein: "--protein",
   carbs: "--carbs",
   fat: "--fat",

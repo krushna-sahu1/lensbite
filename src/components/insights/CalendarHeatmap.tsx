@@ -52,7 +52,7 @@ export function CalendarHeatmap({
     <div>
       <div className="grid grid-cols-7 gap-1.5" role="grid" aria-label="Month calendar">
         {WEEKDAYS.map((weekday) => (
-          <div key={weekday} className="pb-1 text-center text-[11px] font-medium text-muted" aria-hidden="true">
+          <div key={weekday} className="label-caps pb-1 text-center" aria-hidden="true">
             {weekday.slice(0, 1)}
           </div>
         ))}
@@ -77,7 +77,7 @@ export function CalendarHeatmap({
               aria-label={`${dayNumber} ${new Date(year, month, dayNumber).toLocaleDateString([], {
                 month: "long",
               })}: ${calories.toLocaleString()} calories, ${percent}% of goal. Show that day's meals.`}
-              className={`flex aspect-square flex-col items-center justify-center rounded-lg text-xs font-semibold tabular-nums transition ${
+              className={`flex aspect-square flex-col items-center justify-center rounded-xl text-[11px] font-semibold tabular-nums transition hover:scale-[1.04] active:scale-95 ${
                 heatClass(day, goal)
               } ${isToday ? "ring-2 ring-accent-ink ring-offset-1 ring-offset-surface" : ""}`}
             >
@@ -88,15 +88,15 @@ export function CalendarHeatmap({
         })}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-muted">
-        <span>Less</span>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span className="label-caps">Less</span>
         {LEGEND.map((step) => (
           <span key={step.label} className="flex items-center gap-1.5">
             <span className={`size-3 rounded ${step.className}`} aria-hidden="true" />
             <span className="sr-only">{step.label}</span>
           </span>
         ))}
-        <span>More</span>
+        <span className="label-caps">More</span>
       </div>
     </div>
   );

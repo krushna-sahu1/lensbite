@@ -19,7 +19,8 @@
   --muted: #6d6f68;
   --line: #e5e6e0;
   --track: #eceee9;
-  --shadow: 0 1px 2px rgb(23 24 26 / 0.04), 0 8px 24px -12px rgb(23 24 26 / 0.12);
+  --shadow: 0 1px 2px rgb(23 24 26 / 0.04), 0 14px 34px -18px rgb(23 24 26 / 0.2);
+  --hero-shadow: 0 2px 4px rgb(23 24 26 / 0.04), 0 28px 64px -34px rgb(21 128 61 / 0.45);
 
   /* Brand + nutrients */
   --accent: #4ade80;
@@ -44,6 +45,16 @@
   --glass: rgb(255 255 255 / 0.14);
   --glass-strong: rgb(255 255 255 / 0.22);
   --glass-ink: #ffffff;
+
+  /*
+   * Bottom navigation metrics. The bar is 72px tall, and the raised Live
+   * button sticks up another 32px (half of its 64px size). Pages pad by
+   * `--nav-clearance` so the bar and the button never cover content.
+   */
+  --nav-bar: 4.5rem;
+  --nav-lift: 2rem;
+  --nav-safe: max(env(safe-area-inset-bottom), 0.5rem);
+  --nav-clearance: calc(var(--nav-bar) + var(--nav-lift) + var(--nav-safe) + 1.25rem);
 }
 
 :root[data-theme="dark"] {
@@ -56,7 +67,8 @@
   --muted: #9a9c93;
   --line: #2a2e2a;
   --track: #242825;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.45), 0 16px 40px -20px rgb(0 0 0 / 0.75);
+  --hero-shadow: 0 2px 4px rgb(0 0 0 / 0.5), 0 30px 70px -34px rgb(0 0 0 / 0.95);
 
   --accent-ink: #86efac;
   --accent-soft: #0f2a1b;
@@ -97,6 +109,7 @@
   --font-sans: var(--font-app-sans);
   --font-mono: var(--font-app-mono);
   --shadow-card: var(--shadow);
+  --shadow-hero: var(--hero-shadow);
 }
 
 body {
@@ -134,16 +147,77 @@ body {
   }
 }
 
-/* Slow halo behind the "Go Live" button. */
-@keyframes halo {
-  0% {
-    transform: scale(1);
-    opacity: 0.55;
-  }
-  70%,
+/* Slow, soft pulse behind the raised Live button. */
+@keyframes live-pulse {
+  0%,
   100% {
-    transform: scale(1.35);
-    opacity: 0;
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.14);
+    opacity: 0.8;
+  }
+}
+
+/* Bottom padding for scrollable pages: clears the nav and its raised button. */
+.pb-nav {
+  padding-bottom: var(--nav-clearance);
+}
+
+/*
+ * One shared type scale for the whole app:
+ * small, light uppercase labels + big, tight, tabular numbers.
+ */
+@layer components {
+  .page-title {
+    font-size: 1.75rem;
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+  }
+
+  .label-caps {
+    font-size: 0.6875rem;
+    line-height: 1.1;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .num-xl {
+    font-size: 2.5rem;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .num-lg {
+    font-size: 1.75rem;
+    line-height: 1.05;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .num-md {
+    font-size: 1.25rem;
+    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Bars grow up from the baseline when a chart first appears. */
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
   }
 }
 

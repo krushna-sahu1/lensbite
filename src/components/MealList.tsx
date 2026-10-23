@@ -2,23 +2,10 @@
 
 import { useRef, useState } from "react";
 import { Toast } from "@/components/Toast";
+import { CameraIcon, TrashIcon } from "@/components/icons";
+import { MEAL_META } from "@/components/meal-meta";
 import { deleteMeal, restoreMeal } from "@/lib/storage";
-import { MEAL_TYPES, type Meal, type MealType } from "@/lib/types";
-import { TrashIcon } from "./icons";
-
-const TYPE_STYLES: Record<MealType, string> = {
-  breakfast: "bg-carbs/15 text-carbs-ink",
-  lunch: "bg-accent/15 text-accent-ink",
-  dinner: "bg-protein/15 text-protein-ink",
-  snack: "bg-fat/15 text-fat-ink",
-};
-
-const TYPE_LABELS: Record<MealType, string> = {
-  breakfast: "Breakfast",
-  lunch: "Lunch",
-  dinner: "Dinner",
-  snack: "Snacks",
-};
+import { MEAL_TYPES, type Meal } from "@/lib/types";
 
 /** How far the row has to travel before the swipe counts as a delete. */
 const DELETE_THRESHOLD = 96;
@@ -58,11 +45,13 @@ export function MealList({ meals }: { meals: Meal[] }) {
 
   if (meals.length === 0) {
     return (
-      <div className="rounded-3xl border border-dashed border-line px-6 py-10 text-center">
-        <p className="font-medium">No meals logged today</p>
-        <p className="mt-1 text-sm text-muted">
-          Tap <span className="font-medium text-foreground">Go Live</span>, point your camera at your food and ask
-          &ldquo;How many calories is this?&rdquo;
+      <div className="rounded-3xl border border-dashed border-line bg-surface/40 px-6 py-10 text-center">
+        <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-track text-muted">
+          <CameraIcon width={22} height={22} strokeWidth={1.8} />
+        </span>
+        <p className="mt-3 font-semibold">No meals logged today</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted">
+          Tap the green camera button below, point at your food and ask &ldquo;How many calories is this?&rdquo;
         </p>
       </div>
     );
@@ -76,23 +65,27 @@ export function MealList({ meals }: { meals: Meal[] }) {
   return (
     <>
       <div className="space-y-5">
-        {groups.map((group) => (
-          <section key={group.type} aria-labelledby={`group-${group.type}`}>
-            <div className="mb-2 flex items-baseline justify-between px-1">
-              <h3 id={`group-${group.type}`} className="text-sm font-semibold uppercase tracking-wide text-muted">
-                {TYPE_LABELS[group.type]}
-              </h3>
-              <span className="text-xs text-muted tabular-nums">
-                {group.meals.reduce((sum, meal) => sum + meal.calories, 0).toLocaleString()} kcal
-              </span>
-            </div>
-            <ul className="space-y-2">
-              {[...group.meals].reverse().map((meal) => (
-                <MealRow key={meal.id} meal={meal} onDelete={() => void remove(meal)} />
-              ))}
-            </ul>
-          </section>
-        ))}
+        {groups.map((group) => {
+          const meta = MEAL_META[group.type];
+          return (
+            <section key={group.type} aria-labelledby={`group-${group.type}`}>
+              <div className="mb-2 flex items-center justify-between px-1">
+                <h3 id={`group-${group.type}`} className="label-caps flex items-center gap-1.5">
+                  <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
+                  {meta.label}
+                </h3>
+                <span className="text-[11px] font-medium text-muted tabular-nums">
+                  {group.meals.reduce((sum, meal) => sum + meal.calories, 0).toLocaleString()} kcal
+                </span>
+              </div>
+              <ul className="space-y-2">
+                {[...group.meals].reverse().map((meal) => (
+                  <MealRow key={meal.id} meal={meal} onDelete={() => void remove(meal)} />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
       </div>
 
       {toast && (
@@ -117,6 +110,8 @@ function MealRow({ meal, onDelete }: { meal: Meal; onDelete: () => void }) {
   const startOffset = useRef(0);
   /** The offset as it is right now, so a fast swipe can't read a stale value. */
   const liveOffset = useRef(0);
+  const meta = MEAL_META[meal.mealType];
+  const Icon = meta.icon;
 
   function apply(next: number) {
     liveOffset.current = next;
@@ -168,33 +163,39 @@ function MealRow({ meal, onDelete }: { meal: Meal; onDelete: () => void }) {
       </div>
 
       <div
-        className="relative flex items-start gap-3 bg-surface p-4 transition-transform duration-200 ease-out"
+        className="relative flex items-start gap-3 bg-gradient-to-b from-surface to-surface-2 p-4 transition-transform duration-200 ease-out"
         style={{ transform: `translateX(${offset}px)` }}
       >
+        <span
+          className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ring-1 ${meta.badge}`}
+          aria-hidden="true"
+        >
+          <Icon width={20} height={20} strokeWidth={1.9} />
+        </span>
+
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${TYPE_STYLES[meal.mealType]}`}>
-              {meal.mealType}
-            </span>
-            <span className="text-xs text-muted">
+            <span className="label-caps">{meta.label}</span>
+            <span className="text-[11px] font-medium text-muted">
               {new Date(meal.loggedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
             </span>
           </div>
-          <p className="mt-1.5 truncate font-medium">{meal.name}</p>
+          <p className="mt-1 truncate text-[15px] font-semibold tracking-tight">{meal.name}</p>
           <p className="mt-0.5 text-xs text-muted tabular-nums">
             P {meal.protein_g}g · C {meal.carbs_g}g · F {meal.fat_g}g · Fiber {meal.fiber_g}g
           </p>
           {meal.notes && <p className="mt-1.5 line-clamp-2 text-xs text-muted">{meal.notes}</p>}
         </div>
+
         <div className="flex flex-col items-end gap-1">
-          <span className="font-semibold tabular-nums">
+          <span className="num-md">
             {meal.calories}
-            <span className="ml-0.5 text-xs font-normal text-muted">kcal</span>
+            <span className="ml-0.5 text-[11px] font-medium text-muted">kcal</span>
           </span>
           <button
             type="button"
             onClick={onDelete}
-            className="-mr-1.5 -mt-0.5 flex size-11 items-center justify-center rounded-full text-muted transition hover:bg-track hover:text-fat-ink"
+            className="-mr-1.5 -mt-0.5 flex size-11 items-center justify-center rounded-full text-muted transition hover:bg-track hover:text-fat-ink active:scale-90"
             aria-label={`Delete ${meal.name}`}
           >
             <TrashIcon width={17} height={17} />

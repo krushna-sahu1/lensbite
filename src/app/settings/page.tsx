@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { BottomNav } from "@/components/BottomNav";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DownloadIcon, MoonIcon, SunIcon, SystemIcon, TrashIcon, UploadIcon } from "@/components/icons";
 import { Toast } from "@/components/Toast";
@@ -105,10 +104,10 @@ export default function SettingsPage() {
 
   return (
     <>
-      <main className="mx-auto w-full max-w-md px-4 pb-28 pt-[max(env(safe-area-inset-top),1.5rem)]">
+      <main className="mx-auto w-full max-w-md px-4 pb-nav pt-[max(env(safe-area-inset-top),1.5rem)]">
         <header className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-0.5 text-sm text-muted">Goals, appearance and your data.</p>
+          <h1 className="page-title">Settings</h1>
+          <p className="mt-1 text-sm text-muted">Goals, appearance and your data.</p>
         </header>
 
         {/* Goals. `key` remounts the form when goals change (e.g. after import). */}
@@ -285,8 +284,6 @@ export default function SettingsPage() {
           Estimates come from AI and can be off. Not medical advice.
         </p>
       </main>
-
-      <BottomNav />
 
       <ConfirmDialog
         open={confirm === "clear"}
