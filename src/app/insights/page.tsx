@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { CalendarHeatmap } from "@/components/insights/CalendarHeatmap";
 import { DaySheet } from "@/components/insights/DaySheet";
+import { MealEditor, type MealEditorTarget } from "@/components/MealEditor";
+import { Toast } from "@/components/Toast";
 import { StatCards } from "@/components/insights/StatCards";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 import { Card, EmptyState, SectionTitle, SegmentedControl, Skeleton } from "@/components/ui";
@@ -46,13 +48,15 @@ const MacroDonut = dynamic(() => import("@/components/insights/MacroDonut").then
 });
 
 export default function InsightsPage() {
-  const { goals, mealCount, loaded } = useStore();
+  const { goals, revision, loaded } = useStore();
   const now = useNow();
 
   const [period, setPeriod] = useState<Period>("week");
   /** How many periods away from today the view is (0 = the current period). */
   const [offset, setOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [editing, setEditing] = useState<MealEditorTarget | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
 
   // The anchor is derived from the real "now" (the server has no clock).
   const anchor = useMemo(() => {
@@ -67,8 +71,8 @@ export default function InsightsPage() {
   const range = useMemo(() => (anchor ? rangeFor(period, anchor) : null), [period, anchor]);
   const before = useMemo(() => (range ? previousRange(range) : null), [range]);
 
-  const current = useMealsInRange(range?.from ?? "", range?.to ?? "", mealCount);
-  const previous = useMealsInRange(before?.from ?? "", before?.to ?? "", mealCount);
+  const current = useMealsInRange(range?.from ?? "", range?.to ?? "", revision);
+  const previous = useMealsInRange(before?.from ?? "", before?.to ?? "", revision);
 
   const days = useMemo(() => (range ? aggregateByDay(current.meals, range) : []), [current.meals, range]);
   const previousDays = useMemo(() => (before ? aggregateByDay(previous.meals, before) : []), [previous.meals, before]);
@@ -290,7 +294,25 @@ export default function InsightsPage() {
         </div>
       </main>
 
-      <DaySheet day={selected} goal={goals.calories} onClose={() => setSelectedDay(null)} />
+      <DaySheet
+        day={selected}
+        goal={goals.calories}
+        onClose={() => setSelectedDay(null)}
+        // One sheet at a time: the day closes while its meal is being edited.
+        onEditMeal={(meal) => {
+          setSelectedDay(null);
+          setEditing({ mode: "edit", meal });
+        }}
+        // Days that haven't happened yet can't have meals.
+        onAddMeal={selected && selected.day > todayKey ? undefined : (day) => {
+          setSelectedDay(null);
+          // Today: now. An earlier day: midday, which the time field lets you change.
+          const at = day.day === todayKey ? new Date() : new Date(day.date.getFullYear(), day.date.getMonth(), day.date.getDate(), 12);
+          setEditing({ mode: "add", at });
+        }}
+      />
+      <MealEditor target={editing} onClose={() => setEditing(null)} onSaved={setSaved} />
+      {saved && <Toast message={saved} onDismiss={() => setSaved(null)} />}
     </>
   );
 }

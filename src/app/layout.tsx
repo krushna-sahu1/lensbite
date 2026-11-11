@@ -21,6 +21,10 @@ export const metadata: Metadata = {
   title: "LensBite",
   description: "Point your camera at food and talk to an AI nutrition buddy.",
   appleWebApp: { capable: true, title: "LensBite", statusBarStyle: "black-translucent" },
+  icons: {
+    icon: [{ url: "/icons/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
 };
 
 export const viewport: Viewport = {

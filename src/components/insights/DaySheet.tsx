@@ -1,18 +1,26 @@
 "use client";
 
+import { PlusIcon } from "@/components/icons";
 import { Sheet } from "@/components/Sheet";
 import { MEAL_META } from "@/components/meal-meta";
 import type { DayTotals } from "@/lib/storage";
+import type { Meal } from "@/lib/types";
 
 /** Bottom sheet with everything logged on one day. */
 export function DaySheet({
   day,
   goal,
   onClose,
+  onEditMeal,
+  onAddMeal,
 }: {
   day: DayTotals | null;
   goal: number;
   onClose: () => void;
+  /** Tap on a meal: open it in the editor. */
+  onEditMeal?: (meal: Meal) => void;
+  /** "Add a meal" for this day. */
+  onAddMeal?: (day: DayTotals) => void;
 }) {
   const open = day !== null;
   const percent = day && goal > 0 ? Math.round((day.calories / goal) * 100) : 0;
@@ -59,8 +67,14 @@ export function DaySheet({
                 const meta = MEAL_META[meal.mealType];
                 const Icon = meta.icon;
                 return (
-                  <li key={meal.id} className="rounded-2xl bg-track/60 p-3.5">
-                    <div className="flex items-start gap-3">
+                  <li key={meal.id}>
+                    <button
+                      type="button"
+                      disabled={!onEditMeal}
+                      onClick={() => onEditMeal?.(meal)}
+                      aria-label={onEditMeal ? `Edit ${meal.name}` : undefined}
+                      className="flex w-full items-start gap-3 rounded-2xl bg-track/60 p-3.5 text-left transition hover:bg-track disabled:cursor-default disabled:hover:bg-track/60"
+                    >
                       <span
                         className={`flex size-10 shrink-0 items-center justify-center rounded-2xl ring-1 ${meta.badge}`}
                         aria-hidden="true"
@@ -84,11 +98,22 @@ export function DaySheet({
                         {meal.calories}
                         <span className="ml-0.5 text-[11px] font-medium text-muted">kcal</span>
                       </span>
-                    </div>
+                    </button>
                   </li>
                 );
               })}
             </ul>
+          )}
+
+          {onAddMeal && (
+            <button
+              type="button"
+              onClick={() => onAddMeal(day)}
+              className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-track font-semibold transition hover:brightness-95 active:scale-[0.98]"
+            >
+              <PlusIcon width={16} height={16} />
+              Add a meal to this day
+            </button>
           )}
         </div>
       )}

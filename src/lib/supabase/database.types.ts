@@ -58,9 +58,29 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["settings"]["Insert"]>;
         Relationships: [];
       };
+      live_usage: {
+        Row: {
+          user_id: string;
+          day: string;
+          tokens: number;
+        };
+        // Shape only: there are no insert/update policies, so writes go through claim_live_token().
+        Insert: {
+          user_id: string;
+          day: string;
+          tokens?: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["live_usage"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      claim_live_token: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+    };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
   };

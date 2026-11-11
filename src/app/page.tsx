@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DailySummary } from "@/components/DailySummary";
-import { GearIcon } from "@/components/icons";
+import { GearIcon, PlusIcon } from "@/components/icons";
+import { MealEditor, type MealEditorTarget } from "@/components/MealEditor";
 import { MealList } from "@/components/MealList";
+import { Toast } from "@/components/Toast";
 import { Sparkline } from "@/components/Sparkline";
 import { Skeleton } from "@/components/ui";
 import { localDateKey, mealsOnDay, sumNutrients } from "@/lib/nutrition";
@@ -19,15 +21,17 @@ import {
 import { useNow } from "@/lib/use-now";
 
 export default function Home() {
-  const { meals, goals, loaded, error, day, mealCount } = useStore();
+  const { meals, goals, loaded, error, day, revision } = useStore();
 
   const now = useNow(); // null while server-rendering
+  const [editing, setEditing] = useState<MealEditorTarget | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const today = useMemo(() => (now ? mealsOnDay(meals, now) : []), [meals, now]);
   const totals = useMemo(() => sumNutrients(today), [today]);
 
   // The last seven days, for the sparkline.
   const sparkRange = useMemo(() => (now ? trailingRange(now, 7) : null), [now]);
-  const { meals: sparkMeals } = useMealsInRange(sparkRange?.from ?? "", sparkRange?.to ?? "", mealCount);
+  const { meals: sparkMeals } = useMealsInRange(sparkRange?.from ?? "", sparkRange?.to ?? "", revision);
   const sparkDays = useMemo(
     () => (sparkRange ? aggregateByDay(sparkMeals, sparkRange) : []),
     [sparkMeals, sparkRange],
@@ -92,12 +96,23 @@ export default function Home() {
           <Sparkline days={sparkDays} goal={goals.calories} />
         </div>
 
-        <h2 className="mb-3 mt-7 flex items-baseline justify-between px-1">
-          <span className="text-lg font-semibold tracking-tight">Today&apos;s meals</span>
-          {today.length > 0 && <span className="text-sm text-muted">{today.length} logged</span>}
-        </h2>
+        <div className="mb-3 mt-7 flex items-center justify-between gap-3 px-1">
+          <h2 className="flex items-baseline gap-2">
+            <span className="text-lg font-semibold tracking-tight">Today&apos;s meals</span>
+            {today.length > 0 && <span className="text-sm text-muted">{today.length} logged</span>}
+          </h2>
+          <button
+            type="button"
+            disabled={!loaded}
+            onClick={() => setEditing({ mode: "add", at: new Date() })}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-4 text-sm font-semibold shadow-card ring-1 ring-line transition hover:bg-surface-2 active:scale-95 disabled:opacity-60"
+          >
+            <PlusIcon width={16} height={16} />
+            Add
+          </button>
+        </div>
         {loaded ? (
-          <MealList meals={today} />
+          <MealList meals={today} onEdit={(meal) => setEditing({ mode: "edit", meal })} />
         ) : (
           <div className="space-y-2">
             <div className="h-24 animate-pulse rounded-2xl bg-track" aria-label="Loading meals" />
@@ -105,6 +120,9 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      <MealEditor target={editing} onClose={() => setEditing(null)} onSaved={setSaved} />
+      {saved && <Toast message={saved} onDismiss={() => setSaved(null)} />}
     </>
   );
 }

@@ -30,7 +30,7 @@ import {
 } from "./config";
 import { LABEL_REQUEST_PATTERN } from "./label";
 import { FrameGrabber, getMicAndCamera } from "./media";
-import { buildSystemInstruction } from "./prompt";
+import { buildContextMessage, SYSTEM_INSTRUCTION } from "./prompt";
 import { getSnapshot, refresh } from "./storage";
 import { runTool, TOOL_DECLARATIONS } from "./tools";
 import type { ProductRating } from "./types";
@@ -264,7 +264,9 @@ export class LiveSessionController {
 
   private async connect() {
     const gen = ++this.generation;
-    // Fresh totals for the system prompt; fall back to the cached ones if Supabase is unreachable.
+    // A resumed session already has the conversation (and the context message); a fresh one needs it.
+    const resuming = !!this.resumeHandle;
+    // Fresh totals for the context message; fall back to the cached ones if Supabase is unreachable.
     const [token, snapshot] = await Promise.all([fetchToken(), refresh().catch(() => getSnapshot())]);
     if (gen !== this.generation) return;
 
@@ -277,8 +279,9 @@ export class LiveSessionController {
         // Tokens per camera frame; the default is too coarse to read label print.
         mediaResolution: LIVE_MEDIA_RESOLUTION,
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
-        // Rebuilt on every connect so it includes the latest totals.
-        systemInstruction: buildSystemInstruction(snapshot),
+        // The token locks these three (see /api/token); they're repeated here so the
+        // session still works against a token created without constraints.
+        systemInstruction: SYSTEM_INSTRUCTION,
         tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
         // Text transcripts of both sides, for the on-screen transcript.
         inputAudioTranscription: {},
@@ -308,6 +311,16 @@ export class LiveSessionController {
     }
     this.session = session;
     this.connectedAt = Date.now();
+
+    // Goals and today's log go in as the first (silent) turn: the system prompt is
+    // locked by the token, so it can't carry per-user data. turnComplete: false
+    // means the model waits for the user instead of answering this.
+    if (!resuming) {
+      session.sendClientContent({
+        turns: [{ role: "user", parts: [{ text: buildContextMessage(snapshot) }] }],
+        turnComplete: false,
+      });
+    }
   }
 
   private handleClose(e: CloseEvent) {
@@ -486,7 +499,7 @@ export class LiveSessionController {
     if (this.state.labelMode && Date.now() > this.labelModeUntil) this.set({ labelMode: false });
     const left = SILENCE_TIMEOUT_MS - (Date.now() - this.lastActivity);
     if (left <= 0) {
-      this.finish("Session ended after 2 minutes of silence to save your quota.");
+      this.finish(`Session ended after ${formatDuration(SILENCE_TIMEOUT_MS)} of silence to save your quota.`);
       return;
     }
     const countdown = left <= SILENCE_WARNING_MS ? Math.ceil(left / 1000) : null;
@@ -549,6 +562,16 @@ async function fetchToken(): Promise<string> {
   const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
   if (!res.ok || !body.token) throw new Error(body.error || `Token request failed (${res.status}).`);
   return body.token;
+}
+
+/** 120000 -> "2 minutes", 90000 -> "90 seconds". */
+function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds % 60 === 0) {
+    const minutes = seconds / 60;
+    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  return `${seconds} seconds`;
 }
 
 function isQuotaError(reason: string) {

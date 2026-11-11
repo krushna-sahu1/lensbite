@@ -11,10 +11,11 @@ import { MEAL_TYPES, type Meal } from "@/lib/types";
 const DELETE_THRESHOLD = 96;
 
 /**
- * Today's meals, grouped by type. A row can be swiped left to delete it; the
- * delete can be undone from the toast that pops up afterwards.
+ * Today's meals, grouped by type. Tapping a row opens it for editing. A row can
+ * be swiped left to delete it; the delete can be undone from the toast that
+ * pops up afterwards.
  */
-export function MealList({ meals }: { meals: Meal[] }) {
+export function MealList({ meals, onEdit }: { meals: Meal[]; onEdit?: (meal: Meal) => void }) {
   const [toast, setToast] = useState<{ message: string; error?: boolean; action?: { label: string; onClick: () => void } } | null>(
     null,
   );
@@ -52,6 +53,7 @@ export function MealList({ meals }: { meals: Meal[] }) {
         <p className="mt-3 font-semibold">No meals logged today</p>
         <p className="mt-1 text-sm leading-relaxed text-muted">
           Tap the green camera button below, point at your food and ask &ldquo;How many calories is this?&rdquo;
+          Or use <span className="font-semibold text-foreground">Add</span> to type it in.
         </p>
       </div>
     );
@@ -80,7 +82,12 @@ export function MealList({ meals }: { meals: Meal[] }) {
               </div>
               <ul className="space-y-2">
                 {[...group.meals].reverse().map((meal) => (
-                  <MealRow key={meal.id} meal={meal} onDelete={() => void remove(meal)} />
+                  <MealRow
+                    key={meal.id}
+                    meal={meal}
+                    onDelete={() => void remove(meal)}
+                    onEdit={onEdit ? () => onEdit(meal) : undefined}
+                  />
                 ))}
               </ul>
             </section>
@@ -100,12 +107,17 @@ export function MealList({ meals }: { meals: Meal[] }) {
   );
 }
 
+/** A pointer that moves further than this is a swipe, not a tap. */
+const TAP_SLOP = 8;
+
 /**
- * One meal. It can be swiped left to delete it; the trash button does the
- * same thing for anyone not using a touch screen.
+ * One meal. Tap it to edit. It can be swiped left to delete it; the trash
+ * button does the same thing for anyone not using a touch screen.
  */
-function MealRow({ meal, onDelete }: { meal: Meal; onDelete: () => void }) {
+function MealRow({ meal, onDelete, onEdit }: { meal: Meal; onDelete: () => void; onEdit?: () => void }) {
   const [offset, setOffset] = useState(0);
+  /** True once the current press has moved far enough to be a swipe, so the click that follows is ignored. */
+  const swiped = useRef(false);
   const startX = useRef<number | null>(null);
   const startOffset = useRef(0);
   /** The offset as it is right now, so a fast swipe can't read a stale value. */
@@ -121,12 +133,17 @@ function MealRow({ meal, onDelete }: { meal: Meal; onDelete: () => void }) {
   function onPointerDown(event: React.PointerEvent<HTMLLIElement>) {
     startX.current = event.clientX;
     startOffset.current = liveOffset.current;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    swiped.current = false;
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLLIElement>) {
     if (startX.current === null) return;
     const delta = event.clientX - startX.current;
+    if (!swiped.current && Math.abs(delta) > TAP_SLOP) {
+      swiped.current = true;
+      // Capture only once it's a swipe, so plain taps still reach the buttons inside the row.
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
     // Only swiping left does anything.
     if (delta > 0 && startOffset.current === 0) return;
     apply(Math.max(-140, Math.min(0, startOffset.current + delta)));
@@ -173,7 +190,18 @@ function MealRow({ meal, onDelete }: { meal: Meal; onDelete: () => void }) {
           <Icon width={20} height={20} strokeWidth={1.9} />
         </span>
 
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          disabled={!onEdit}
+          onClick={() => {
+            if (swiped.current) return;
+            // A tap on a row that's swiped open just closes it.
+            if (liveOffset.current !== 0) return apply(0);
+            onEdit?.();
+          }}
+          aria-label={onEdit ? `Edit ${meal.name}` : undefined}
+          className="min-w-0 flex-1 rounded-lg text-left outline-offset-4 disabled:cursor-default"
+        >
           <div className="flex items-center gap-2">
             <span className="label-caps">{meta.label}</span>
             <span className="text-[11px] font-medium text-muted">
@@ -185,7 +213,7 @@ function MealRow({ meal, onDelete }: { meal: Meal; onDelete: () => void }) {
             P {meal.protein_g}g · C {meal.carbs_g}g · F {meal.fat_g}g · Fiber {meal.fiber_g}g
           </p>
           {meal.notes && <p className="mt-1.5 line-clamp-2 text-xs text-muted">{meal.notes}</p>}
-        </div>
+        </button>
 
         <div className="flex flex-col items-end gap-1">
           <span className="num-md">

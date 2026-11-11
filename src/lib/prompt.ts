@@ -1,29 +1,19 @@
 /**
- * System instruction for the Live agent. Rebuilt on every (re)connect so it
- * always carries the latest goals and today's totals.
+ * Prompt text for the Live agent, in two parts:
+ *
+ *  - SYSTEM_INSTRUCTION: fixed. The /api/token route locks it into the
+ *    ephemeral token, so a signed-in user can't swap in their own prompt.
+ *  - buildContextMessage(): the user's goals and today's log. Sent as the first
+ *    message of every fresh session, since the system prompt can't change.
  */
-import { mealsOnDay, remaining, sumNutrients } from "./nutrition";
-import type { StoreSnapshot } from "./storage";
-import type { Nutrients } from "./types";
+import { mealsOnDay, remaining, sumNutrients, toLocalInputValue } from "./nutrition";
+import type { Goals, Meal, Nutrients } from "./types";
 
 function fmt(n: Nutrients): string {
   return `${n.calories} kcal, protein ${n.protein_g} g, carbs ${n.carbs_g} g, fat ${n.fat_g} g, fiber ${n.fiber_g} g`;
 }
 
-export function buildSystemInstruction({ meals, goals }: StoreSnapshot, now = new Date()): string {
-  const today = mealsOnDay(meals, now);
-  const totals = sumNutrients(today);
-  const left = remaining(goals, totals);
-  const mealLines = today.length
-    ? today
-        .map((m) => {
-          const time = new Date(m.loggedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-          return `- ${time} ${m.mealType}: ${m.name} (${m.calories} kcal)`;
-        })
-        .join("\n")
-    : "- none yet";
-
-  return `You are LensBite, a warm, upbeat nutrition buddy in a live voice and camera conversation. The user points their phone's rear camera at food, or at a packaged product's label, and talks to you.
+export const SYSTEM_INSTRUCTION = `You are LensBite, a warm, upbeat nutrition buddy in a live voice and camera conversation. The user points their phone's rear camera at food, or at a packaged product's label, and talks to you.
 
 HOW TO TALK
 - This is spoken audio. Keep replies short and natural: usually one to three sentences. No lists, markdown, or emojis.
@@ -40,6 +30,8 @@ LOGGING (tools)
 - Never log without permission. Before calling log_meal (except "log one serving" of a scanned product, see PACKAGED PRODUCTS), say what you'll log with single best-estimate numbers (the middle of your range) and ask if that's right, e.g. "Want me to log that as about 500 calories?".
 - Only call log_meal after the user clearly agrees. If they correct something, use their correction.
 - Choose meal_type from the time of day unless the user says otherwise. Put the portion and your assumptions in notes.
+- If the user says they ate it earlier ("this was my breakfast", "I had this at noon yesterday"), set eaten_at to that local time and pick meal_type to match.
+- Call log_meal once per food the user confirmed. If its result says the meal was already logged, don't call it again; tell the user it's already in their log, and only log a second entry (allow_duplicate) if they say they really had it twice.
 - After logging, confirm in one sentence and mention roughly how many calories are left today.
 - Use get_today_summary when the user asks how they're doing, what they've eaten, or what's left.
 - Use delete_last_meal when the user wants to undo or remove the last logged meal; confirm first if it's unclear what they mean.
@@ -64,12 +56,28 @@ PACKAGED PRODUCTS (label scanner)
 SAFETY
 - You give rough estimates, not medical advice. For allergies, medical conditions, or eating-disorder concerns, gently suggest talking to a doctor or registered dietitian.
 
-CONTEXT (when this session started)
-- Local time: ${now.toLocaleString([], { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}
+CONTEXT
+- The first message of the session is a CONTEXT message with the user's local time, daily goals, and what they've eaten today. Don't answer it; wait for the user to speak.
+- After you log or delete a meal, trust the numbers in the tool result over the CONTEXT message.`;
+
+export function buildContextMessage({ meals, goals }: { meals: Meal[]; goals: Goals }, now = new Date()): string {
+  const today = mealsOnDay(meals, now);
+  const totals = sumNutrients(today);
+  const left = remaining(goals, totals);
+  const mealLines = today.length
+    ? today
+        .map((m) => {
+          const time = new Date(m.loggedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          return `- ${time} ${m.mealType}: ${m.name} (${m.calories} kcal)`;
+        })
+        .join("\n")
+    : "- none yet";
+
+  return `CONTEXT (when this session started; not something the user said)
+- Local time: ${now.toLocaleString([], { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })} (${toLocalInputValue(now)})
 - Daily goals: ${fmt(goals)}
 - Eaten today: ${fmt(totals)}
 - Remaining today: ${fmt(left)}
 - Meals logged today:
-${mealLines}
-After you log or delete a meal, trust the numbers in the tool result over this snapshot.`;
+${mealLines}`;
 }

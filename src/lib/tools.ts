@@ -4,114 +4,13 @@
  * Supabase (as the signed-in user, so Row Level Security applies), and the
  * result is sent back with session.sendToolResponse().
  */
-import {
-  Behavior,
-  Type,
-  type FunctionCall,
-  type FunctionDeclaration,
-  type FunctionResponse,
-  type Schema,
-} from "@google/genai";
-import { addMeal, deleteLastMealToday, getSnapshot, refresh, type StoreSnapshot } from "./storage";
+import type { FunctionCall, FunctionResponse } from "@google/genai";
+import { addMeal, deleteLastMealToday, findRecentDuplicate, getSnapshot, refresh, type StoreSnapshot } from "./storage";
 import { parseProductRating } from "./label";
-import { mealsOnDay, remaining, sumNutrients, toNonNegativeNumber } from "./nutrition";
+import { mealsOnDay, parseLocalDateTime, remaining, sumNutrients, toNonNegativeNumber } from "./nutrition";
 import { MEAL_TYPES, type Meal, type MealType, type ProductRating } from "./types";
 
-// gemini-3.8-live defaults to NON_BLOCKING (async) tools. We use BLOCKING so the
-// model waits for the real result before it says "logged!".
-const behavior = Behavior.BLOCKING;
-
-const labelNutrients = (column: string): Schema => ({
-  type: Type.OBJECT,
-  description: `Values from the label's ${column} column, exactly as printed. Leave out anything the label doesn't print.`,
-  properties: {
-    calories: { type: Type.NUMBER, description: "Energy in kcal (convert kJ by dividing by 4.184 only if kcal isn't printed)." },
-    fat_g: { type: Type.NUMBER },
-    saturated_fat_g: { type: Type.NUMBER },
-    trans_fat_g: { type: Type.NUMBER },
-    carbs_g: { type: Type.NUMBER, description: "Total carbohydrate." },
-    sugar_g: { type: Type.NUMBER, description: "Total sugars." },
-    added_sugar_g: { type: Type.NUMBER },
-    fiber_g: { type: Type.NUMBER },
-    protein_g: { type: Type.NUMBER },
-    sodium_mg: { type: Type.NUMBER, description: "Sodium in milligrams, if the label lists sodium." },
-    salt_g: { type: Type.NUMBER, description: "Salt in grams, if the label lists salt." },
-  },
-});
-
-const shortList = (description: string): Schema => ({ type: Type.ARRAY, items: { type: Type.STRING }, description });
-
-export const TOOL_DECLARATIONS: FunctionDeclaration[] = [
-  {
-    name: "log_meal",
-    behavior,
-    description:
-      "Save a meal or snack to the user's food log. Only call this AFTER the user has confirmed they want it logged. Use single best-estimate numbers (the middle of your range).",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        name: { type: Type.STRING, description: "Short food name, e.g. 'Chicken burrito bowl'." },
-        meal_type: { type: Type.STRING, enum: [...MEAL_TYPES], description: "Which meal this is." },
-        calories: { type: Type.NUMBER, description: "Estimated calories (kcal)." },
-        protein_g: { type: Type.NUMBER, description: "Estimated protein in grams." },
-        carbs_g: { type: Type.NUMBER, description: "Estimated carbohydrates in grams." },
-        fat_g: { type: Type.NUMBER, description: "Estimated fat in grams." },
-        fiber_g: { type: Type.NUMBER, description: "Estimated fiber in grams." },
-        notes: {
-          type: Type.STRING,
-          description: "Portion size and assumptions, e.g. 'about 1.5 cups, with sour cream; estimate 520-620 kcal'.",
-        },
-      },
-      required: ["name", "meal_type", "calories", "protein_g", "carbs_g", "fat_g", "fiber_g"],
-    },
-  },
-  {
-    name: "get_today_summary",
-    behavior,
-    description:
-      "Get today's logged meals, totals, daily goals, and what's remaining. Use when the user asks how they're doing today.",
-  },
-  {
-    name: "delete_last_meal",
-    behavior,
-    description: "Delete the most recently logged meal from today's log (undo).",
-  },
-  {
-    name: "scan_label",
-    behavior,
-    description:
-      "Switch the camera to sharp, high-resolution frames for reading small print. Call this as soon as the user asks you to rate, scan or check a packaged product, or holds up a nutrition label or ingredients list, BEFORE reading any numbers.",
-  },
-  {
-    name: "show_product_rating",
-    behavior,
-    description:
-      "Show your rating of a packaged product as a card on the user's screen (not saved). Call after reading its label, before speaking the verdict. Returns the nutrition normalized per 100 g/ml and per serving.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        product_name: { type: Type.STRING, description: "Product name as on the pack, e.g. 'Chocolate Chip Cookies'." },
-        brand: { type: Type.STRING },
-        score: { type: Type.NUMBER, description: "Your rating from 0 (avoid) to 10 (excellent). One decimal allowed." },
-        verdict: { type: Type.STRING, description: "One short sentence summing up the rating." },
-        unit: { type: Type.STRING, enum: ["g", "ml"], description: "'g' for foods, 'ml' for drinks." },
-        serving_size: { type: Type.NUMBER, description: "Serving size in g or ml, as printed." },
-        serving_description: { type: Type.STRING, description: "Household measure as printed, e.g. '2 cookies'." },
-        servings_per_pack: { type: Type.NUMBER },
-        per_serving: labelNutrients("per-serving"),
-        per_100: labelNutrients("per 100 g / per 100 ml"),
-        pros: shortList("Up to 4 short positives, a few words each, e.g. '8 g protein per serving'."),
-        cons: shortList(
-          "Up to 4 short negatives, a few words each, including misleading claims and unrealistic serving sizes.",
-        ),
-        ingredient_warnings: shortList(
-          "Problem ingredients as named on the pack, with the reason in brackets, e.g. 'Maltodextrin (added sugar)', 'Palm oil', 'Sucralose (sweetener)'. Empty if none.",
-        ),
-      },
-      required: ["product_name", "score", "verdict", "unit", "pros", "cons", "ingredient_warnings"],
-    },
-  },
-];
+export { TOOL_DECLARATIONS } from "./tool-declarations";
 
 /** Today's log from a snapshot. Pass a fresh one from refresh() to read straight from Supabase. */
 function todaySummary({ meals, goals }: StoreSnapshot = getSnapshot()) {
@@ -154,7 +53,10 @@ export async function runTool(call: FunctionCall): Promise<ToolResult> {
   try {
     switch (call.name) {
       case "log_meal": {
-        const meal: Meal = await addMeal({
+        const eatenAt = resolveEatenAt(args.eaten_at);
+        if (typeof eatenAt === "string") return { response: respond({ error: eatenAt }) };
+
+        const input = {
           name: String(args.name ?? "").trim() || "Meal",
           mealType: (MEAL_TYPES as readonly string[]).includes(String(args.meal_type))
             ? (args.meal_type as MealType)
@@ -165,7 +67,37 @@ export async function runTool(call: FunctionCall): Promise<ToolResult> {
           fat_g: toNonNegativeNumber(args.fat_g),
           fiber_g: toNonNegativeNumber(args.fiber_g),
           notes: typeof args.notes === "string" ? args.notes : undefined,
+        };
+
+        // The model sometimes repeats a log_meal call (after a reconnect, or a
+        // second call for the same confirmation). Same food, same calories, a
+        // few minutes apart: report the existing entry instead of saving twice.
+        if (args.allow_duplicate !== true) {
+          const existing = await findRecentDuplicate(input.name, input.calories, eatenAt);
+          if (existing) {
+            return {
+              response: respond({
+                output: {
+                  already_logged: { name: existing.name, calories: existing.calories, eaten_at: existing.loggedAt },
+                  message: "This meal was already logged a moment ago, so nothing new was saved.",
+                },
+              }),
+            };
+          }
+        }
+
+        // The id is derived from the call id, so a replayed call can't insert a second row.
+        const { meal, created }: { meal: Meal; created: boolean } = await addMeal(input, {
+          id: call.id ? await uuidFromString(call.id) : undefined,
+          loggedAt: eatenAt,
         });
+        if (!created) {
+          return {
+            response: respond({
+              output: { already_logged: { name: meal.name, calories: meal.calories }, message: "Already logged." },
+            }),
+          };
+        }
         // addMeal re-read today's log from Supabase, so the snapshot is current.
         const summary = todaySummary();
         return {
@@ -241,4 +173,33 @@ export async function runTool(call: FunctionCall): Promise<ToolResult> {
   } catch (err) {
     return { response: respond({ error: err instanceof Error ? err.message : String(err) }) };
   }
+}
+
+/** Furthest back log_meal may date a meal. */
+const MAX_BACKDATE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * log_meal's optional eaten_at: undefined (eaten now), a Date, or an error
+ * message for the model when the time can't be used.
+ */
+function resolveEatenAt(raw: unknown, now = new Date()): Date | undefined | string {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const date = parseLocalDateTime(String(raw));
+  if (!date) return `eaten_at "${String(raw)}" isn't a valid time. Use local time as YYYY-MM-DDTHH:MM, or leave it out.`;
+  // A minute of slack for clock differences.
+  if (date.getTime() > now.getTime() + 60_000) return "eaten_at is in the future. Leave it out for food eaten now.";
+  if (now.getTime() - date.getTime() > MAX_BACKDATE_MS) {
+    return "eaten_at is more than 7 days ago. Ask the user to add it from the app's food log instead.";
+  }
+  return date;
+}
+
+/** A stable UUID (v4 layout) from any string, so the same tool call always maps to the same row id. */
+async function uuidFromString(value: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  const b = digest.slice(0, 16);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

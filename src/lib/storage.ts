@@ -20,7 +20,6 @@ import {
   localDayRange,
   NUTRIENT_KEYS,
   roundNutrients,
-  sumNutrients,
   toNonNegativeNumber,
 } from "./nutrition";
 
@@ -50,6 +49,8 @@ export interface StoreSnapshot {
   goals: Goals;
   /** Number of meals saved in the account, all days. */
   mealCount: number;
+  /** Bumped after every change to the food log (add, edit, delete, import), so range reads can refetch. */
+  revision: number;
   /** Local date ("YYYY-MM-DD") that `meals` belongs to. */
   day: string;
   /** Email of the signed-in user. */
@@ -64,12 +65,14 @@ export interface StoreSnapshot {
 // Cache + loading
 // ---------------------------------------------------------------------------
 
-const SERVER_SNAPSHOT: StoreSnapshot = { meals: [], goals: DEFAULT_GOALS, mealCount: 0, day: "", loaded: false };
+const SERVER_SNAPSHOT: StoreSnapshot = { meals: [], goals: DEFAULT_GOALS, mealCount: 0, revision: 0, day: "", loaded: false };
 let cache: StoreSnapshot = SERVER_SNAPSHOT;
 const listeners = new Set<() => void>();
 let started = false;
 /** Bumped on every load, so an older load that finishes late can't overwrite a newer one. */
 let loadSeq = 0;
+/** Counts writes to the food log; copied into every snapshot as `revision`. */
+let revision = 0;
 
 function set(next: StoreSnapshot) {
   cache = next;
@@ -113,6 +116,7 @@ async function load(now: Date): Promise<StoreSnapshot> {
     meals: (meals.data ?? []).map(fromRow),
     goals: goalsFromRow(settings.data),
     mealCount: count.count ?? 0,
+    revision,
     day: localDateKey(now),
     email: user.email,
     loaded: true,
@@ -138,7 +142,11 @@ export async function refresh(): Promise<StoreSnapshot> {
 
 /** Re-read after a successful write. The write already happened, so a failed re-read isn't its error. */
 async function reload() {
-  await refresh().catch(() => {});
+  revision++;
+  await refresh().catch(() => {
+    // Still let range readers (Insights, the sparkline) know the log changed.
+    set({ ...cache, revision });
+  });
 }
 
 function subscribe(listener: () => void) {
@@ -241,13 +249,65 @@ function goalsFromRow(row: Omit<SettingsRow, "user_id"> | null): Goals {
 
 export type NewMeal = Omit<Meal, "id" | "loggedAt">;
 
-export async function addMeal(input: NewMeal): Promise<Meal> {
-  const meal = normalizeMeal({ ...input, loggedAt: new Date().toISOString() });
+export interface AddMealOptions {
+  /** Row id. A fixed id makes the insert idempotent: a second insert with it is ignored. */
+  id?: string;
+  /** When it was eaten. Defaults to now. */
+  loggedAt?: Date;
+}
+
+/** Saves a meal. `created` is false when a meal with the same id already existed (nothing was written). */
+export async function addMeal(input: NewMeal, options: AddMealOptions = {}): Promise<{ meal: Meal; created: boolean }> {
+  const meal = normalizeMeal({
+    ...input,
+    id: options.id,
+    loggedAt: (options.loggedAt ?? new Date()).toISOString(),
+  });
   if (!meal) throw new Error("Meal needs a name");
-  const { error } = await createClient().from("meals").insert(toRow(meal));
+  const { data, error } = await createClient()
+    .from("meals")
+    .upsert(toRow(meal), { onConflict: "id", ignoreDuplicates: true })
+    .select("id");
   if (error) throw dbError(error);
+  const created = data.length > 0;
+  if (created) await reload();
+  return { meal, created };
+}
+
+/** Changes a saved meal: its name, type, time, nutrients or notes. */
+export async function updateMeal(id: string, changes: NewMeal & { loggedAt: string }): Promise<Meal> {
+  const meal = normalizeMeal({ ...changes, id });
+  if (!meal) throw new Error("Meal needs a name and a valid time");
+  const { id: _id, ...row } = toRow(meal);
+  void _id;
+  const { data, error } = await createClient().from("meals").update(row).eq("id", id).select("id");
+  if (error) throw dbError(error);
+  if (!data.length) throw new Error("That meal no longer exists. It may have been deleted on another device.");
   await reload();
   return meal;
+}
+
+/** How close in time two entries of the same food must be to count as the same log. */
+const DUPLICATE_WINDOW_MS = 3 * 60 * 1000;
+
+/**
+ * A meal with this name and calorie count eaten within a few minutes of `at`
+ * (default now), if there is one. Used to stop the agent logging the same
+ * confirmation twice.
+ */
+export async function findRecentDuplicate(name: string, calories: number, at = new Date()): Promise<Meal | null> {
+  const from = new Date(at.getTime() - DUPLICATE_WINDOW_MS).toISOString();
+  const to = new Date(at.getTime() + DUPLICATE_WINDOW_MS).toISOString();
+  const { data, error } = await createClient()
+    .from("meals")
+    .select(MEAL_COLUMNS)
+    .gte("eaten_at", from)
+    .lte("eaten_at", to)
+    .eq("calories", Math.round(calories));
+  if (error) throw dbError(error);
+  const wanted = name.trim().toLowerCase();
+  const match = data.find((row) => row.name.trim().toLowerCase() === wanted);
+  return match ? fromRow(match) : null;
 }
 
 export async function deleteMeal(id: string) {
@@ -379,212 +439,8 @@ export async function clearAllData() {
 // Date ranges and aggregation (the Insights screen)
 // ---------------------------------------------------------------------------
 
-/** The periods the Insights screen can show. */
-export type Period = "day" | "week" | "month";
-
-export interface DateRange {
-  /** Local date key ("YYYY-MM-DD") of the first day in the range. */
-  start: string;
-  /** Local date key of the last day in the range (inclusive). */
-  end: string;
-  /** ISO timestamp of the first moment of the range. */
-  from: string;
-  /** ISO timestamp of the first moment *after* the range (exclusive). */
-  to: string;
-  /** Number of calendar days in the range. */
-  days: number;
-}
-
-/** Parses a local date key back into a local Date (never a UTC one). */
-export function localDateFromKey(key: string): Date {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1);
-}
-
-/** Days between two local dates, ignoring daylight saving changes. */
-function dayCount(start: Date, end: Date): number {
-  const utc = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-  return Math.round((utc(end) - utc(start)) / 86_400_000) + 1;
-}
-
-/** Builds a range from two local date keys. */
-function rangeFromKeys(start: string, end: string): DateRange {
-  const startDate = localDateFromKey(start);
-  const endDate = localDateFromKey(end);
-  const dayAfter = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() + 1);
-  return {
-    start,
-    end,
-    from: startDate.toISOString(),
-    to: dayAfter.toISOString(),
-    days: dayCount(startDate, endDate),
-  };
-}
-
-/** The local calendar day that contains `date`. */
-export function dayRange(date: Date): DateRange {
-  const key = localDateKey(date);
-  return rangeFromKeys(key, key);
-}
-
-/** The local week (Monday to Sunday) that contains `date`. */
-export function weekRange(date: Date): DateRange {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  // getDay() is 0 for Sunday; shift so Monday is the first day of the week.
-  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-  return rangeFromKeys(localDateKey(start), localDateKey(end));
-}
-
-/** The local month (1st to the last day of the month) that contains `date`. */
-export function monthRange(date: Date): DateRange {
-  const start = new Date(date.getFullYear(), date.getMonth(), 1);
-  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  return rangeFromKeys(localDateKey(start), localDateKey(end));
-}
-
-/** The range of a period, anchored on `date`. */
-export function rangeFor(period: Period, date: Date): DateRange {
-  if (period === "day") return dayRange(date);
-  if (period === "week") return weekRange(date);
-  return monthRange(date);
-}
-
-/** The last `count` days, ending with the day that contains `date`. */
-export function trailingRange(date: Date, count: number): DateRange {
-  const end = localDateFromKey(localDateKey(date));
-  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - (count - 1));
-  return rangeFromKeys(localDateKey(start), localDateKey(end));
-}
-
-/** The range right before `range`, with the same number of days. */
-export function previousRange(range: DateRange): DateRange {
-  const start = localDateFromKey(range.start);
-  const previousEnd = new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1);
-  const previousStart = new Date(
-    previousEnd.getFullYear(),
-    previousEnd.getMonth(),
-    previousEnd.getDate() - (range.days - 1),
-  );
-  return rangeFromKeys(localDateKey(previousStart), localDateKey(previousEnd));
-}
-
-/** Moves a range one period forwards or backwards. */
-export function shiftRange(range: DateRange, period: Period, direction: 1 | -1): DateRange {
-  const anchor = localDateFromKey(range.start);
-  const shifted = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
-  if (period === "week") shifted.setDate(shifted.getDate() + 7 * direction);
-  else if (period === "month") shifted.setMonth(shifted.getMonth() + direction);
-  else shifted.setDate(shifted.getDate() + direction);
-  return rangeFor(period, shifted);
-}
-
-/** Every local date key in the range, in order. */
-export function dayKeysInRange(range: DateRange): string[] {
-  const keys: string[] = [];
-  const cursor = localDateFromKey(range.start);
-  for (let i = 0; i < range.days; i++) {
-    keys.push(localDateKey(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return keys;
-}
-
-export interface DayTotals {
-  /** Local date key ("YYYY-MM-DD"). */
-  day: string;
-  /** The local date, for weekday labels. */
-  date: Date;
-  calories: number;
-  protein_g: number;
-  carbs_g: number;
-  fat_g: number;
-  fiber_g: number;
-  /** The meals logged that day, oldest first. */
-  meals: Meal[];
-  /** True when at least one meal was logged. */
-  logged: boolean;
-}
-
-/**
- * Groups meals by local day inside the range. Days without any meal are kept
- * and filled with zeros, so charts always show the full period.
- */
-export function aggregateByDay(meals: Meal[], range: DateRange): DayTotals[] {
-  const byDay = new Map<string, Meal[]>();
-  for (const meal of meals) {
-    const key = localDateKey(new Date(meal.loggedAt));
-    const bucket = byDay.get(key);
-    if (bucket) bucket.push(meal);
-    else byDay.set(key, [meal]);
-  }
-
-  const days: DayTotals[] = [];
-  const cursor = localDateFromKey(range.start);
-  for (let i = 0; i < range.days; i++) {
-    const key = localDateKey(cursor);
-    const dayMeals = (byDay.get(key) ?? []).sort((a, b) => a.loggedAt.localeCompare(b.loggedAt));
-    days.push({
-      day: key,
-      date: new Date(cursor),
-      ...sumNutrients(dayMeals),
-      meals: dayMeals,
-      logged: dayMeals.length > 0,
-    });
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return days;
-}
-
-/** A day counts as "on target" when it has meals and stays within the goal. */
-export function isOnTarget(day: DayTotals, calorieGoal: number): boolean {
-  return day.logged && calorieGoal > 0 && day.calories > 0 && day.calories <= calorieGoal;
-}
-
-export interface PeriodStats {
-  /** Mean calories per day across the whole range (days without meals count as 0). */
-  averageCalories: number;
-  /** Total calories in the range. */
-  totalCalories: number;
-  /** The day with the most calories, if anything was logged. */
-  bestDay?: DayTotals;
-  /** Days that hit the calorie goal without going over it. */
-  daysOnTarget: number;
-  /** Consecutive on-target days ending at the last day with meals in the range. */
-  streak: number;
-  /** Percent change of the total vs. the previous period (null when there is nothing to compare). */
-  changePercent: number | null;
-}
-
-/** Rolls a period up into the numbers shown on the Insights screen. */
-export function summarize(days: DayTotals[], calorieGoal: number, previous?: DayTotals[]): PeriodStats {
-  const totalCalories = days.reduce((sum, day) => sum + day.calories, 0);
-  const averageCalories = days.length ? Math.round(totalCalories / days.length) : 0;
-  const daysOnTarget = days.filter((day) => isOnTarget(day, calorieGoal)).length;
-
-  let bestDay: DayTotals | undefined;
-  for (const day of days) {
-    if (day.calories > 0 && (!bestDay || day.calories > bestDay.calories)) bestDay = day;
-  }
-
-  // The streak walks back from the end of the range. Days without any meals
-  // haven't happened yet, so they don't break it; a day that missed the goal does.
-  let streak = 0;
-  for (let i = days.length - 1; i >= 0; i--) {
-    const day = days[i];
-    if (!day.logged) continue;
-    if (!isOnTarget(day, calorieGoal)) break;
-    streak++;
-  }
-
-  let changePercent: number | null = null;
-  if (previous) {
-    const previousTotal = previous.reduce((sum, day) => sum + day.calories, 0);
-    if (previousTotal > 0) changePercent = Math.round(((totalCalories - previousTotal) / previousTotal) * 100);
-  }
-
-  return { averageCalories, totalCalories, bestDay, daysOnTarget, streak, changePercent };
-}
+// Pure range/aggregation helpers live in periods.ts; re-exported for existing imports.
+export * from "./periods";
 
 /** Every meal inside a local date range, oldest first. */
 export async function fetchMealsInRange(from: string, to: string): Promise<Meal[]> {
