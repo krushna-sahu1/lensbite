@@ -228,3 +228,63 @@ export const PlusIcon = (p: IconProps) => (
     <path d="M12 5v14M5 12h14" />
   </Icon>
 );
+
+export const BarcodeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8" />
+  </Icon>
+);
+
+export const StarIcon = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <Icon {...p} fill={filled ? "currentColor" : "none"}>
+    <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z" />
+  </Icon>
+);
+
+export const ScaleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="4" />
+    <path d="M8.5 9a4.5 4.5 0 0 1 7 0M12 9.5l1.5-2" />
+  </Icon>
+);
+
+export const ImageIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="9" cy="10" r="2" />
+    <path d="m21 16-5-5-9 9" />
+  </Icon>
+);
+
+export const PenIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+  </Icon>
+);
+
+export const MenuBookIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 4h10a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2zM16 8h4v12h-4M8 8h4M8 12h4M8 16h2" />
+  </Icon>
+);
+
+export const FridgeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="5" y="2" width="14" height="20" rx="2" />
+    <path d="M5 10h14M9 5v2M9 13v3" />
+  </Icon>
+);
+
+export const CompareIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="7" height="16" rx="1.5" />
+    <rect x="14" y="4" width="7" height="16" rx="1.5" />
+    <path d="M12 2v20" strokeDasharray="2 2" />
+  </Icon>
+);
+
+export const CheckIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m5 12 5 5L20 7" />
+  </Icon>
+);

@@ -232,7 +232,9 @@ function toRow(meal: Meal): MealInsert {
   };
 }
 
-function goalsFromRow(row: Omit<SettingsRow, "user_id"> | null): Goals {
+function goalsFromRow(
+  row: Pick<SettingsRow, "calorie_goal" | "protein_goal" | "carbs_goal" | "fat_goal" | "fiber_goal"> | null,
+): Goals {
   if (!row) return DEFAULT_GOALS;
   return normalizeGoals({
     calories: row.calorie_goal,
@@ -432,6 +434,12 @@ export async function clearAllData() {
     db.from("settings").delete().eq("user_id", userId),
   ]);
   for (const { error } of results) if (error) throw dbError(error);
+  // Weigh-ins and saved foods too. Ignored if those tables don't exist yet (migration not applied).
+  const extra = await Promise.all([
+    db.from("weights").delete().eq("user_id", userId),
+    db.from("saved_foods").delete().eq("user_id", userId),
+  ]);
+  for (const { error } of extra) if (error && !/does not exist|schema cache/i.test(error.message)) throw dbError(error);
   await reload();
 }
 

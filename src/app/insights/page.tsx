@@ -6,6 +6,7 @@ import { CalendarHeatmap } from "@/components/insights/CalendarHeatmap";
 import { DaySheet } from "@/components/insights/DaySheet";
 import { MealEditor, type MealEditorTarget } from "@/components/MealEditor";
 import { Toast } from "@/components/Toast";
+import { WeightSummary } from "@/components/weight/WeightSummary";
 import { StatCards } from "@/components/insights/StatCards";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 import { Card, EmptyState, SectionTitle, SegmentedControl, Skeleton } from "@/components/ui";
@@ -290,6 +291,11 @@ export default function InsightsPage() {
             ) : (
               <MacroDonut totals={totals} />
             )}
+          </Card>
+
+          {/* Weight trend (hidden until the weights table exists). */}
+          <Card>
+            <WeightSummary variant="full" />
           </Card>
         </div>
       </main>

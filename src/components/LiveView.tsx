@@ -1,9 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { cardKey, LIVE_MODE_INFO, LIVE_MODES, type LiveCard, type LiveMode } from "@/lib/live-cards";
 import type { LiveSessionController, LiveState } from "@/lib/live-session";
-import { CloseIcon, LabelIcon, MicIcon } from "./icons";
+import { CameraIcon, CloseIcon, CompareIcon, FridgeIcon, LabelIcon, MenuBookIcon, MicIcon } from "./icons";
+import { ComparisonCard, MenuCard, RecipesCard } from "./LiveCards";
 import { ProductCard } from "./ProductCard";
+
+const MODE_ICONS: Record<LiveMode, typeof CameraIcon> = {
+  food: CameraIcon,
+  label: LabelIcon,
+  menu: MenuBookIcon,
+  fridge: FridgeIcon,
+  compare: CompareIcon,
+};
+
+function Card({ card, onClose }: { card: LiveCard; onClose: () => void }) {
+  switch (card.kind) {
+    case "product":
+      return <ProductCard product={card.product} onClose={onClose} />;
+    case "menu":
+      return <MenuCard menu={card.menu} onClose={onClose} />;
+    case "recipes":
+      return <RecipesCard recipes={card.recipes} onClose={onClose} />;
+    case "comparison":
+      return <ComparisonCard comparison={card.comparison} onClose={onClose} />;
+  }
+}
 
 const STATUS_LABEL: Record<LiveState["status"], string> = {
   idle: "",
@@ -69,18 +92,6 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
         </div>
         {!over && (
           <div className="flex items-center gap-2">
-            {/* Label mode: sharper frames for reading small print. The agent also turns it on by itself. */}
-            <button
-              type="button"
-              onClick={() => controller.toggleLabelMode()}
-              className={`inline-flex min-h-11 items-center gap-1.5 rounded-full px-4 text-sm font-semibold backdrop-blur-md transition ${
-                state.labelMode ? "bg-accent text-black" : "bg-white/15 hover:bg-white/25"
-              }`}
-              aria-pressed={state.labelMode}
-            >
-              <LabelIcon width={18} height={18} />
-              Label
-            </button>
             <button
               type="button"
               onClick={() => controller.end()}
@@ -93,18 +104,43 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
         )}
       </header>
 
+      {/* Mode chips: what the camera is looking at. The agent can switch them too. */}
+      {!over && (
+        <div className="relative z-10 -mt-5 px-4 pb-2">
+          <div role="radiogroup" aria-label="Camera mode" className="no-scrollbar flex gap-1.5 overflow-x-auto">
+            {LIVE_MODES.map((mode) => {
+              const Icon = MODE_ICONS[mode];
+              const active = state.mode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => controller.setMode(mode)}
+                  className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold backdrop-blur-md transition ${
+                    active ? "bg-accent text-black" : "bg-white/15 hover:bg-white/25"
+                  }`}
+                >
+                  <Icon width={16} height={16} />
+                  {LIVE_MODE_INFO[mode].label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {state.notice && !over && (
         <p className="relative z-10 mx-4 rounded-2xl bg-amber-500/90 px-4 py-2.5 text-sm text-black">{state.notice}</p>
       )}
 
-      {/* Product card for the current label scan (scrolls if it doesn't fit) */}
-      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {!over && state.product && (
-          <ProductCard key={state.product.ratedAt} product={state.product} onClose={() => controller.dismissProduct()} />
-        )}
-        {!over && !state.product && state.labelMode && (
+      {/* The latest card (product, menu picks, meal ideas, comparison); scrolls if it doesn't fit */}
+      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto px-4 py-2">
+        {!over && state.card && <Card key={cardKey(state.card)} card={state.card} onClose={() => controller.dismissCard()} />}
+        {!over && !state.card && state.labelMode && (
           <p className="mx-auto w-fit rounded-full bg-white/15 px-3.5 py-1.5 text-center text-xs text-white/85 backdrop-blur-md">
-            Label mode: fill the screen with the label and hold steady
+            Sharp mode: fill the screen with the text and hold steady
           </p>
         )}
       </div>
@@ -113,19 +149,16 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
       {!over && (
         <footer
           className={`relative z-10 bg-gradient-to-t from-black/85 via-black/60 to-transparent px-4 pb-[max(env(safe-area-inset-bottom),1.25rem)] ${
-            state.product ? "pt-4" : "pt-16"
+            state.card ? "pt-4" : "pt-16"
           }`}
         >
-          {/* Shorter transcript while a product card needs the room. */}
+          {/* Shorter transcript while a card needs the room. */}
           <div
             ref={transcriptRef}
-            className={`mask-fade-top mb-4 space-y-2.5 overflow-y-auto pr-1 ${state.product ? "max-h-[18vh]" : "max-h-[38vh]"}`}
+            className={`mask-fade-top mb-4 space-y-2.5 overflow-y-auto pr-1 ${state.card ? "max-h-[18vh]" : "max-h-[38vh]"}`}
           >
             {state.transcript.length === 0 && state.status === "live" && (
-              <p className="text-center text-sm text-white/70">
-                Point at your food and ask, &ldquo;How many calories is this?&rdquo; Or show the back of a pack and
-                say &ldquo;Rate this.&rdquo;
-              </p>
+              <p className="text-center text-sm text-white/70">{LIVE_MODE_INFO[state.mode].hint}</p>
             )}
             {state.transcript.map((entry) =>
               entry.role === "event" ? (
@@ -186,7 +219,7 @@ export function LiveView({ controller, state }: { controller: LiveSessionControl
               </button>
               <button
                 type="button"
-                onClick={() => void controller.start()}
+                onClick={() => void controller.start(state.mode)}
                 className="min-h-11 flex-1 rounded-full bg-accent py-3 font-semibold text-black transition active:scale-95"
               >
                 Go Live again

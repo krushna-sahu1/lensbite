@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DownloadIcon, MoonIcon, SunIcon, SystemIcon, TrashIcon, UploadIcon } from "@/components/icons";
@@ -15,6 +16,7 @@ import {
   useLegacyMealCount,
   useStore,
 } from "@/lib/storage";
+import { setUnits, useProfile } from "@/lib/body";
 import { createClient } from "@/lib/supabase/client";
 import { THEMES, type Theme } from "@/lib/theme";
 import type { Goals } from "@/lib/types";
@@ -43,6 +45,7 @@ export default function SettingsPage() {
   const { goals, mealCount, email, loaded } = useStore();
   const legacyMeals = useLegacyMealCount();
   const { theme, setTheme } = useTheme();
+  const { profile, available: profileAvailable } = useProfile();
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<"clear" | "signout" | "reset" | null>(null);
@@ -118,6 +121,15 @@ export default function SettingsPage() {
               Daily goals
             </h2>
             <p className="text-sm text-muted">Daily calorie and macro goals, shared with the AI.</p>
+            {profileAvailable && (
+              <Link
+                href="/onboarding"
+                className="mt-3 flex min-h-11 items-center justify-between rounded-2xl bg-accent-soft px-4 text-sm font-semibold text-accent-ink transition hover:brightness-95"
+              >
+                {profile?.completedAt && profile.heightCm ? "Recalculate from my body and goal" : "Calculate from my body and goal"}
+                <span aria-hidden="true">→</span>
+              </Link>
+            )}
             <form key={JSON.stringify(goals)} onSubmit={saveGoals} className="mt-4">
               <fieldset disabled={busy || !loaded} className="min-w-0 space-y-3">
                 {GOAL_FIELDS.map(({ key, label, unit }) => (
@@ -198,6 +210,36 @@ export default function SettingsPage() {
         </section>
 
         {/* Data */}
+        {profileAvailable && (
+          <section aria-labelledby="units-heading" className="mt-7">
+            <SectionTitle title="Units" />
+            <Card>
+              <h2 id="units-heading" className="sr-only">
+                Weight units
+              </h2>
+              <div role="radiogroup" aria-label="Weight units" className="flex gap-1 rounded-2xl bg-track p-1">
+                {(["metric", "imperial"] as const).map((u) => {
+                  const active = (profile?.units ?? "metric") === u;
+                  return (
+                    <button
+                      key={u}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => void run(async () => (await setUnits(u), u === "metric" ? "Using kg and cm" : "Using lb and ft"))}
+                      className={`min-h-11 flex-1 rounded-xl text-sm font-semibold transition ${
+                        active ? "bg-gradient-to-b from-surface to-surface-2 shadow-sm" : "text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {u === "metric" ? "kg · cm" : "lb · ft"}
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+          </section>
+        )}
+
         <section aria-labelledby="data-heading" className="mt-7">
           <SectionTitle title="Data" />
           <Card>
@@ -288,7 +330,7 @@ export default function SettingsPage() {
       <ConfirmDialog
         open={confirm === "clear"}
         title="Clear all data?"
-        description="Every meal and your goals will be deleted. Export a JSON backup first if you want to keep them."
+        description="Every meal, weigh-in, saved food and your goals will be deleted. Export a JSON backup of your meals first if you want to keep them."
         confirmLabel="Delete everything"
         onCancel={() => setConfirm(null)}
         onConfirm={() => {

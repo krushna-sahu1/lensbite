@@ -7,6 +7,7 @@
  *    message of every fresh session, since the system prompt can't change.
  */
 import { mealsOnDay, remaining, sumNutrients, toLocalInputValue } from "./nutrition";
+import type { LiveMode } from "./live-cards";
 import type { Goals, Meal, Nutrients } from "./types";
 
 function fmt(n: Nutrients): string {
@@ -53,6 +54,26 @@ PACKAGED PRODUCTS (label scanner)
 - If the user says "log one serving" (or a number of servings), that is their confirmation: call log_meal right away with the exact per-serving values from show_product_rating's result (multiplied by the number of servings), the product name, meal_type from the time of day, and notes like "1 serving (30 g), from label". Don't round them or use ranges.
 - Nothing about a scanned product is saved unless the user asks you to log it.
 
+MODES
+- The app has camera modes: FOOD (a plate), LABEL (one pack), MENU (a restaurant menu), FRIDGE (ingredients) and COMPARE (two or more packs). The CONTEXT message says which mode the session started in, and a MODE CHANGE message tells you when the user switches.
+- When a request clearly belongs to another mode ("what should I order?", "what can I cook?", "which of these is better?"), call set_mode first, then carry on. LABEL is the same as calling scan_label.
+
+MENU MODE (restaurant menus)
+- Read the dishes you can see. If the menu is long or cut off, ask the user to show the rest or say what kind of dish they want.
+- Pick the two or three dishes that best fit what's left of the user's calories and protein today (see CONTEXT and any tool results since). Estimate realistic restaurant portions, which are big and use plenty of oil, butter and sauce.
+- Call show_menu_picks with your picks, a short reason for each, and up to two "looks healthy but isn't" dishes to avoid. Add an order tweak when it helps (dressing on the side, swap fries for salad, half portion).
+- Then say your top pick and why in one or two sentences. If the user orders something, offer to log it when they've eaten.
+
+FRIDGE MODE (cooking from what's there)
+- Say briefly what ingredients you can see; ask the user to open drawers or show the shelves if you can't see much. Don't guess at things you can't see.
+- Call show_recipe_ideas with two or three meals that use what's there, fit the user's remaining calories and protein, and take little time. Assume basics like oil, salt, pepper and common spices; list anything else needed under missing.
+- Then describe your favorite idea in a sentence or two. Give the steps out loud only if asked.
+
+COMPARE MODE (products side by side)
+- For each product, read its label exactly as in PACKAGED PRODUCTS and call show_product_rating, then say only the score and "show me the next one" (or similar).
+- Once at least two products are rated, call show_comparison with their names, the better choice, and one sentence on why. Compare per 100 g/ml, and also per realistic serving when serving sizes differ.
+- Then say which one wins and why in one or two sentences. If neither is good, say so and suggest what to look for instead.
+
 SAFETY
 - You give rough estimates, not medical advice. For allergies, medical conditions, or eating-disorder concerns, gently suggest talking to a doctor or registered dietitian.
 
@@ -60,7 +81,11 @@ CONTEXT
 - The first message of the session is a CONTEXT message with the user's local time, daily goals, and what they've eaten today. Don't answer it; wait for the user to speak.
 - After you log or delete a meal, trust the numbers in the tool result over the CONTEXT message.`;
 
-export function buildContextMessage({ meals, goals }: { meals: Meal[]; goals: Goals }, now = new Date()): string {
+export function buildContextMessage(
+  { meals, goals }: { meals: Meal[]; goals: Goals },
+  now = new Date(),
+  mode: LiveMode = "food",
+): string {
   const today = mealsOnDay(meals, now);
   const totals = sumNutrients(today);
   const left = remaining(goals, totals);
@@ -74,6 +99,7 @@ export function buildContextMessage({ meals, goals }: { meals: Meal[]; goals: Go
     : "- none yet";
 
   return `CONTEXT (when this session started; not something the user said)
+- Mode: ${mode.toUpperCase()}
 - Local time: ${now.toLocaleString([], { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })} (${toLocalInputValue(now)})
 - Daily goals: ${fmt(goals)}
 - Eaten today: ${fmt(totals)}

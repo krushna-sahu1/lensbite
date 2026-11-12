@@ -22,10 +22,14 @@ It reads the nutrition table and ingredients, scores the product 0–10 by voice
 | Screen | What it does |
 | --- | --- |
 | **Login** | Tap **Continue with Google** and pick an account, and you're in. Every other page needs a session. |
-| **Home** | Greeting, a big animated calorie ring, protein / carbs / fat / fiber vs. goals, the day's meals grouped by type (swipe a meal left to delete it, then **Undo**), a 7-day sparkline that leads to Insights, and a pulsing **Go Live** button. |
-| **Live** | Rear-camera preview, always-on mic, live transcript of both sides, End button. Streams 16 kHz PCM audio continuously and ~1 JPEG frame/sec. AI audio plays immediately and stops the moment you talk over it. Shows the **product card** after a label scan, plus a **Label** button for label mode. |
+| **Home** | Greeting, a big animated calorie ring, protein / carbs / fat / fiber vs. goals, a 7-day sparkline, **Menu / Fridge / Compare** shortcuts into Live, a weight-trend card, and the day's meals grouped by type (tap to edit, swipe left to delete, then **Undo**). A **Personalize your goals** card appears until you've set up goals. |
+| **Add food** | The **Add** button: describe a meal in words or snap a photo for an AI estimate (each food as its own item, with a calorie range, a confidence level and ½×–2× portion buttons), scan a barcode, type it in, or log a **Recent**, **Saved** (starred) or **Yesterday** food in one tap. No voice session needed. |
+| **Barcode** | Camera barcode scanner (the browser's BarcodeDetector, or a WebAssembly fallback on iOS/Firefox) or typed digits, looked up in Open Food Facts. Shows Nutri-Score, NOVA processing level and traffic-light nutrients; log by servings or grams. |
+| **Live** | Rear-camera preview, always-on mic, live transcript of both sides, End button. Streams 16 kHz PCM audio continuously and ~1 JPEG frame/sec. AI audio plays immediately and stops the moment you talk over it. **Mode chips**: Food, Label (rate a pack), Menu (what to order for what's left today), Fridge (meal ideas from what you've got) and Compare (packs side by side). Each mode shows its own card. |
+| **Goals** (`/onboarding`) | Sex, birth year, height, weight, activity and goal (lose / maintain / gain and weekly rate) → calorie, protein, carbs, fat and fiber targets (Mifflin-St Jeor), kg or lb. |
 | **Insights** | **Day / Week / Month** views of your log: a bar chart of daily calories with a dashed goal line, a month calendar heatmap coloured by how much of your goal each day hit, an area chart, a protein/carbs/fat donut, stat cards (daily average, best day, days on target, streak, change vs. the previous period), and a bottom sheet with a day's meals when you tap a day. |
-| **Settings** | Daily calorie/macro goals, light/dark/system theme, export/import logs as JSON, move meals left in this browser by the old localStorage version into your account, clear data, sign out |
+| **Insights → Weight** | Daily weigh-ins as dots with a smoothed trend line, the current trend weight and the weekly rate of change. |
+| **Settings** | Daily calorie/macro goals (or recalculate them from your body), kg/lb units, light/dark/system theme, export/import logs as JSON, move meals left in this browser by the old localStorage version into your account, clear data, sign out |
 
 Agent tools (function calling, run in the browser against Supabase as the signed-in user):
 
@@ -34,6 +38,10 @@ Agent tools (function calling, run in the browser against Supabase as the signed
 - `delete_last_meal()`
 - `scan_label()`: switches to label mode before the agent reads a pack
 - `show_product_rating(product_name, score, verdict, unit, serving_size, per_serving, per_100, pros, cons, ingredient_warnings, …)`: shows the product card (never saved)
+- `set_mode(mode)`: switches the Live screen to food, label, menu, fridge or compare
+- `show_menu_picks(restaurant, picks, avoid)`: menu mode's card of dishes that fit what's left today
+- `show_recipe_ideas(ideas)`: fridge mode's card of meals from what's visible
+- `show_comparison(product_names, winner, verdict)`: compare mode's side-by-side card, built from products rated this session
 
 ## Insights
 
@@ -90,7 +98,7 @@ Requires Node.js 20+.
    npx supabase db push
    ```
 
-   The migrations create `meals` and `settings` with Row Level Security on and one policy per operation, all `user_id = auth.uid()`.
+   The migrations create `meals`, `settings`, `weights`, `saved_foods` and two usage counters (`live_usage`, `ai_usage`), all with Row Level Security on and `user_id = auth.uid()` policies. The usage counters can only be changed through `claim_live_token()` and `claim_ai_usage()`.
 
    No extra migration is needed for the Insights screen: `meals` already has a composite index on `(user_id, eaten_at desc)`, which is exactly what the date-range queries on that screen use.
 
@@ -155,7 +163,9 @@ On iPhone, a home-screen app keeps its own cookies, separate from Safari's. If G
 
 ### Protecting your deployment
 
-- `/api/token` hands out Gemini tokens only to signed-in users (it verifies the Supabase session cookie), so a stranger with your URL can't spend your quota.
+- `/api/token` hands out Gemini tokens only to signed-in users (it verifies the Supabase session cookie), so a stranger with your URL can't spend your quota. Tokens are locked to LensBite's model, prompt and tools.
+- `/api/analyze` (describe/photo estimates) and `/api/product` (barcode lookups) also require a signed-in user.
+- Per-user daily limits: `LIVE_TOKENS_PER_DAY` (default 40) and `ANALYZE_REQUESTS_PER_DAY` (default 60). Set `LENSBITE_ALLOWED_EMAILS` to a comma-separated list to keep the AI features to specific accounts.
 - `src/proxy.ts` redirects signed-out visitors to `/login` and keeps the session cookie fresh. It's a convenience: the real protection for your data is Row Level Security in the database, which applies even to someone calling the Supabase API directly with the public key.
 - Turn off new sign-ups after your first login (Setup step 6).
 
@@ -183,6 +193,13 @@ On iPhone, a home-screen app keeps its own cookies, separate from Safari's. If G
 | File | Purpose |
 | --- | --- |
 | `src/app/api/token/route.ts` | Creates the ephemeral token for signed-in users (API key never leaves the server) |
+| `src/app/api/analyze/route.ts`, `src/lib/analyze.ts` | Describe-or-photo estimates with a regular Gemini call (JSON schema, model fallback, daily limit) |
+| `src/app/api/product/route.ts`, `src/lib/openfoodfacts.ts` | Barcode lookup in Open Food Facts and conversion to LensBite's nutrient shape |
+| `src/lib/server/guard.ts` | Shared checks for the API routes: signed in, allowlist, limits |
+| `src/components/add/*`, `src/lib/library.ts`, `src/lib/image.ts` | Add-food sheet, AI results, recent/saved/yesterday lists, barcode scanner, product logger, photo resizing |
+| `src/lib/live-cards.ts`, `src/components/LiveCards.tsx` | Live modes and the menu, meal-idea and comparison cards |
+| `src/lib/energy.ts`, `src/app/onboarding/page.tsx` | Goal calculation from a body profile, and the goal-setup page |
+| `src/lib/body.ts`, `src/lib/weight-trend.ts`, `src/components/weight/*` | Profile and weight log in Supabase, smoothed trend, weight card, chart and log sheet |
 | `src/proxy.ts`, `src/lib/supabase/proxy.ts` | Refreshes the Supabase session on each request; sends signed-out visitors to `/login` |
 | `src/app/login/page.tsx`, `src/app/auth/callback/route.ts` | Google sign-in button, and the OAuth callback that exchanges the code for a session |
 | `src/lib/supabase/*` | Browser and server Supabase clients, env check, table types |

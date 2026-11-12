@@ -43,3 +43,11 @@ export const SPEAKER_SAMPLE_RATE = 24000; // output: 16-bit PCM, 24 kHz, mono
 
 /** How many times we try to transparently reconnect a dropped session. */
 export const MAX_RECONNECT_ATTEMPTS = 3;
+
+/**
+ * Regular (non-live) model for "describe it / snap it" logging. Override with GEMINI_TEXT_MODEL.
+ * 3.5 Flash answered in ~3 s in testing (Nov 2026) while 3.8 Flash was often overloaded.
+ */
+export const ANALYZE_MODEL = process.env.GEMINI_TEXT_MODEL || "gemini-3.5-flash";
+/** Tried when the main model is overloaded or times out. Override with GEMINI_TEXT_FALLBACK_MODEL. */
+export const ANALYZE_FALLBACK_MODEL = process.env.GEMINI_TEXT_FALLBACK_MODEL || "gemini-3.8-flash";

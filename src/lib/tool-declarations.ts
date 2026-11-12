@@ -110,4 +110,104 @@ export const TOOL_DECLARATIONS: FunctionDeclaration[] = [
       required: ["product_name", "score", "verdict", "unit", "pros", "cons", "ingredient_warnings"],
     },
   },
+  {
+    name: "set_mode",
+    behavior,
+    description:
+      "Switch the app's camera mode so the screen and camera match what the user is doing: 'food' (a plate), 'label' (reading one pack), 'menu' (a restaurant menu), 'fridge' (ingredients in a fridge or pantry), 'compare' (comparing two or more packs). Call it as soon as the user's request clearly fits another mode.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: { mode: { type: Type.STRING, enum: ["food", "label", "menu", "fridge", "compare"] } },
+      required: ["mode"],
+    },
+  },
+  {
+    name: "show_menu_picks",
+    behavior,
+    description:
+      "Show your recommended dishes from a restaurant menu as a card (not saved). Call after reading the menu, before speaking your top pick.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        restaurant: { type: Type.STRING, description: "Restaurant name if visible." },
+        picks: {
+          type: Type.ARRAY,
+          description: "Two or three best dishes for the user's remaining calories and macros today, best first.",
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              dish: { type: Type.STRING, description: "Dish name as on the menu." },
+              why: { type: Type.STRING, description: "One short reason, e.g. 'High protein, fits your 650 kcal left'." },
+              calories: { type: Type.NUMBER, description: "Best-estimate kcal for a typical restaurant portion." },
+              protein_g: { type: Type.NUMBER },
+              tip: { type: Type.STRING, description: "Optional order tweak, e.g. 'Ask for dressing on the side'." },
+            },
+            required: ["dish", "why", "calories"],
+          },
+        },
+        avoid: {
+          type: Type.ARRAY,
+          description: "Up to two dishes that look healthy but aren't, with why. Empty if none.",
+          items: {
+            type: Type.OBJECT,
+            properties: { dish: { type: Type.STRING }, why: { type: Type.STRING } },
+            required: ["dish", "why"],
+          },
+        },
+      },
+      required: ["picks"],
+    },
+  },
+  {
+    name: "show_recipe_ideas",
+    behavior,
+    description:
+      "Show meal ideas made from the ingredients you can see (fridge, pantry, counter) as a card (not saved). Call after looking, before describing your favorite idea.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        ideas: {
+          type: Type.ARRAY,
+          description: "Two or three ideas, best fit for the user's remaining goals first.",
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              uses: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Ingredients you saw that it uses." },
+              missing: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "Things it needs that you didn't see, besides basics like salt, pepper and oil.",
+              },
+              minutes: { type: Type.NUMBER, description: "Total time." },
+              calories: { type: Type.NUMBER, description: "Per serving, best estimate." },
+              protein_g: { type: Type.NUMBER, description: "Per serving." },
+              steps: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Three to five short steps." },
+            },
+            required: ["title", "uses", "calories", "steps"],
+          },
+        },
+      },
+      required: ["ideas"],
+    },
+  },
+  {
+    name: "show_comparison",
+    behavior,
+    description:
+      "Show products side by side as a card. Only after rating each one with show_product_rating in this session; the card uses those ratings.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        product_names: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: "Names of the rated products to compare, as you passed them to show_product_rating.",
+        },
+        winner: { type: Type.STRING, description: "Name of the better choice, or leave out if it depends." },
+        verdict: { type: Type.STRING, description: "One sentence on why, e.g. 'Half the sugar and twice the protein per 100 g'." },
+      },
+      required: ["product_names", "verdict"],
+    },
+  },
 ];

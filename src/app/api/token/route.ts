@@ -16,37 +16,20 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { LIVE_MODEL } from "@/lib/config";
 import { SYSTEM_INSTRUCTION } from "@/lib/prompt";
-import { createClient } from "@/lib/supabase/server";
+import { checkAllowlist, envLimit, geminiKey, requireUser } from "@/lib/server/guard";
 import { TOOL_DECLARATIONS } from "@/lib/tool-declarations";
 
 /** Each connect and reconnect uses one token; a session reconnects about every 10 minutes. */
 const DEFAULT_TOKENS_PER_DAY = 40;
 
 export async function POST() {
-  // getClaims() verifies the JWT signature, unlike getSession().
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const claims = data?.claims;
-  if (!claims) {
-    return Response.json({ error: "You're signed out. Sign in again, then tap Go Live." }, { status: 401 });
-  }
-
-  const allowed = allowedEmails();
-  const email = typeof claims.email === "string" ? claims.email.toLowerCase() : "";
-  if (allowed && !allowed.has(email)) {
-    return Response.json(
-      { error: "Live sessions aren't enabled for this account yet. Ask the app's owner to add your email." },
-      { status: 403 },
-    );
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return Response.json(
-      { error: "The server is missing GEMINI_API_KEY. Add it to .env.local (or your Vercel project's environment variables) and restart." },
-      { status: 500 },
-    );
-  }
+  const user = await requireUser("You're signed out. Sign in again, then tap Go Live.");
+  if (user instanceof Response) return user;
+  const denied = checkAllowlist(user);
+  if (denied) return denied;
+  const apiKey = geminiKey();
+  if (apiKey instanceof Response) return apiKey;
+  const { supabase } = user;
 
   // Count this request against today's limit before spending anything.
   const { data: issued, error: usageError } = await supabase.rpc("claim_live_token");
@@ -60,7 +43,7 @@ export async function POST() {
       { status: 500 },
     );
   }
-  const limit = tokensPerDay();
+  const limit = envLimit("LIVE_TOKENS_PER_DAY", DEFAULT_TOKENS_PER_DAY);
   if (issued > limit) {
     return Response.json(
       { error: "You've reached today's limit for Live sessions. It resets at midnight UTC." },
@@ -103,21 +86,4 @@ export async function POST() {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: `Couldn't create a session token: ${message}` }, { status: 502 });
   }
-}
-
-/** LENSBITE_ALLOWED_EMAILS as a set of lowercase emails, or null when unset (everyone may use Live). */
-function allowedEmails(): Set<string> | null {
-  const raw = process.env.LENSBITE_ALLOWED_EMAILS?.trim();
-  if (!raw) return null;
-  return new Set(
-    raw
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
-function tokensPerDay(): number {
-  const n = Number(process.env.LIVE_TOKENS_PER_DAY);
-  return Number.isInteger(n) && n > 0 ? n : DEFAULT_TOKENS_PER_DAY;
 }

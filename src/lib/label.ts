@@ -33,7 +33,7 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
-function parseNutrients(raw: unknown): LabelNutrients {
+export function parseNutrients(raw: unknown): LabelNutrients {
   const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out: LabelNutrients = {};
   for (const key of LABEL_NUTRIENT_KEYS) {
@@ -46,7 +46,7 @@ function parseNutrients(raw: unknown): LabelNutrients {
   return out;
 }
 
-function scale(n: LabelNutrients, factor: number): LabelNutrients {
+export function scaleNutrients(n: LabelNutrients, factor: number): LabelNutrients {
   const out: LabelNutrients = {};
   for (const key of LABEL_NUTRIENT_KEYS) {
     const v = n[key];
@@ -55,7 +55,7 @@ function scale(n: LabelNutrients, factor: number): LabelNutrients {
   return out;
 }
 
-function roundLabel(n: LabelNutrients): LabelNutrients {
+export function roundLabel(n: LabelNutrients): LabelNutrients {
   const out: LabelNutrients = {};
   for (const key of LABEL_NUTRIENT_KEYS) {
     const v = n[key];
@@ -75,8 +75,8 @@ export function parseProductRating(args: Record<string, unknown>): ProductRating
   const servingSize = optionalNumber(args.serving_size) || undefined;
   const printedServing = parseNutrients(args.per_serving);
   const printed100 = parseNutrients(args.per_100);
-  const fromServing = servingSize ? scale(printedServing, 100 / servingSize) : {};
-  const from100 = servingSize ? scale(printed100, servingSize / 100) : {};
+  const fromServing = servingSize ? scaleNutrients(printedServing, 100 / servingSize) : {};
+  const from100 = servingSize ? scaleNutrients(printed100, servingSize / 100) : {};
 
   const list = (value: unknown) =>
     Array.isArray(value) ? value.map((s) => String(s).trim()).filter(Boolean) : [];

@@ -7,6 +7,15 @@
 import type { FunctionCall, FunctionResponse } from "@google/genai";
 import { addMeal, deleteLastMealToday, findRecentDuplicate, getSnapshot, refresh, type StoreSnapshot } from "./storage";
 import { parseProductRating } from "./label";
+import {
+  isLiveMode,
+  LIVE_MODE_INFO,
+  parseComparison,
+  parseMenuPicks,
+  parseRecipeIdeas,
+  type LiveCard,
+  type LiveMode,
+} from "./live-cards";
 import { mealsOnDay, parseLocalDateTime, remaining, sumNutrients, toNonNegativeNumber } from "./nutrition";
 import { MEAL_TYPES, type Meal, type MealType, type ProductRating } from "./types";
 
@@ -41,12 +50,20 @@ export interface ToolResult {
   changed?: boolean;
   /** Turn on label mode (sharp frames for reading small print). */
   labelMode?: boolean;
-  /** Product card to show on the Live screen. Lives in memory only. */
-  product?: ProductRating;
+  /** Card to show on the Live screen (product, menu picks, recipes, comparison). Memory only. */
+  card?: LiveCard;
+  /** Switch the Live screen to this mode. */
+  mode?: LiveMode;
+}
+
+/** What the Live session knows that some tools need. */
+export interface ToolContext {
+  /** Products rated so far this session, oldest first. */
+  rated: ProductRating[];
 }
 
 /** Executes one function call from the model. Never rejects. */
-export async function runTool(call: FunctionCall): Promise<ToolResult> {
+export async function runTool(call: FunctionCall, context: ToolContext = { rated: [] }): Promise<ToolResult> {
   const respond = (response: Record<string, unknown>) => ({ id: call.id, name: call.name, response });
   const args = (call.args ?? {}) as Record<string, unknown>;
 
@@ -163,7 +180,53 @@ export async function runTool(call: FunctionCall): Promise<ToolResult> {
           }),
           event: `Rated ${product.name} · ${product.score}/10`,
           labelMode: true,
-          product,
+          card: { kind: "product", product },
+        };
+      }
+
+      case "set_mode": {
+        const mode = isLiveMode(args.mode) ? args.mode : null;
+        if (!mode) return { response: respond({ error: "Unknown mode. Use one of: food, label, menu, fridge, compare." }) };
+        return {
+          response: respond({ output: { mode, sharp_frames: LIVE_MODE_INFO[mode].sharp } }),
+          mode,
+        };
+      }
+
+      case "show_menu_picks": {
+        const menu = parseMenuPicks(args);
+        if (!menu.picks.length) return { response: respond({ error: "Give at least one pick with a dish name." }) };
+        return {
+          response: respond({ output: { shown: true, picks: menu.picks.length } }),
+          event: `${menu.picks.length} pick${menu.picks.length === 1 ? "" : "s"}${menu.restaurant ? ` at ${menu.restaurant}` : ""}`,
+          card: { kind: "menu", menu },
+        };
+      }
+
+      case "show_recipe_ideas": {
+        const recipes = parseRecipeIdeas(args);
+        if (!recipes.ideas.length) return { response: respond({ error: "Give at least one idea with a title." }) };
+        return {
+          response: respond({ output: { shown: true, ideas: recipes.ideas.length } }),
+          event: `${recipes.ideas.length} meal idea${recipes.ideas.length === 1 ? "" : "s"}`,
+          card: { kind: "recipes", recipes },
+        };
+      }
+
+      case "show_comparison": {
+        const comparison = parseComparison(args, context.rated);
+        if ("error" in comparison) return { response: respond({ error: comparison.error }) };
+        return {
+          response: respond({
+            output: {
+              shown: true,
+              compared: comparison.products.map((p) => ({ name: p.name, score: p.score, unit: p.unit, per_100: p.per100 })),
+              winner: comparison.winnerIndex === null ? null : comparison.products[comparison.winnerIndex].name,
+            },
+          }),
+          event: `Compared ${comparison.products.length} products`,
+          labelMode: true,
+          card: { kind: "comparison", comparison },
         };
       }
 

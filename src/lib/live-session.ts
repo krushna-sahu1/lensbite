@@ -7,9 +7,11 @@
  *   speaker ◀─24 kHz PCM────────┤  audio replies (stopped instantly on barge-in)
  *   transcript ◀───────────────┤  input/output transcriptions
  *   Supabase ◀─────tool calls──┘  log_meal / get_today_summary / delete_last_meal
- *   product card ◀─tool calls──┘  scan_label / show_product_rating (memory only)
+ *   cards ◀────────tool calls──┘  product rating, menu picks, recipe ideas,
+ *                                 product comparison (memory only)
  *
- * "Label mode" sends sharper frames while the agent reads a package's label.
+ * Modes (food, label, menu, fridge, compare) tell the agent what the user is
+ * doing; label, menu and compare send sharper frames so small print is legible.
  *
  * It's a plain class (not a React hook) so the many moving parts live in one
  * place. React subscribes to its state via `useLiveSession()`.
@@ -33,6 +35,7 @@ import { FrameGrabber, getMicAndCamera } from "./media";
 import { buildContextMessage, SYSTEM_INSTRUCTION } from "./prompt";
 import { getSnapshot, refresh } from "./storage";
 import { runTool, TOOL_DECLARATIONS } from "./tools";
+import { LIVE_MODE_INFO, type LiveCard, type LiveMode } from "./live-cards";
 import type { ProductRating } from "./types";
 
 export type LiveStatus =
@@ -67,8 +70,10 @@ export interface LiveState {
   stream: MediaStream | null;
   /** Sending sharp, high-resolution frames so a label's small print is legible. */
   labelMode: boolean;
-  /** The product currently rated on screen (only the latest scan; never saved). */
-  product: ProductRating | null;
+  /** What the user is doing: picks the hint, frame sharpness and the agent's focus. */
+  mode: LiveMode;
+  /** The card on screen (latest product rating, menu picks, recipes or comparison; never saved). */
+  card: LiveCard | null;
 }
 
 const INITIAL_STATE: LiveState = {
@@ -79,7 +84,8 @@ const INITIAL_STATE: LiveState = {
   silenceCountdown: null,
   stream: null,
   labelMode: false,
-  product: null,
+  mode: "food",
+  card: null,
 };
 
 const CONNECT_TIMEOUT_MS = 15_000;
@@ -111,6 +117,8 @@ export class LiveSessionController {
   private nextEntryId = 1;
   /** When label mode switches itself off (Infinity when the user turned it on). */
   private labelModeUntil = 0;
+  /** Products rated this session, oldest first, for side-by-side comparison. */
+  private rated: ProductRating[] = [];
 
   // --- tiny external store API for React --------------------------------------
 
@@ -138,13 +146,15 @@ export class LiveSessionController {
   // --- lifecycle ---------------------------------------------------------------
 
   /** Call directly from a click handler (needed for audio on iOS). */
-  async start() {
+  async start(mode: LiveMode = "food") {
     if (!this.stopped) return;
     this.stopped = false;
     this.resumeHandle = null;
     this.reconnectAttempts = 0;
     this.nextEntryId = 1;
-    this.set({ ...INITIAL_STATE, status: "starting" });
+    this.rated = [];
+    this.labelModeUntil = LIVE_MODE_INFO[mode].sharp ? Infinity : 0;
+    this.set({ ...INITIAL_STATE, status: "starting", mode, labelMode: LIVE_MODE_INFO[mode].sharp });
 
     // Create audio contexts synchronously, while we're still inside the user's tap.
     this.player = new PcmPlayer();
@@ -192,9 +202,36 @@ export class LiveSessionController {
     else this.enterLabelMode(Infinity);
   }
 
-  /** Close the product card. */
-  dismissProduct() {
-    this.set({ product: null });
+  /**
+   * Switch mode from the mode chips. Tells the agent too (as a silent context
+   * turn), so "what should I order?" lands in menu mode without explaining.
+   */
+  setMode(mode: LiveMode) {
+    if (mode === this.state.mode) return;
+    this.applyMode(mode);
+    if (this.state.status === "live") {
+      this.safeSend(() =>
+        this.session?.sendClientContent({
+          turns: [{ role: "user", parts: [{ text: modeNote(mode) }] }],
+          turnComplete: false,
+        }),
+      );
+    }
+  }
+
+  /** Mode bookkeeping shared by the chips and the agent's set_mode tool. */
+  private applyMode(mode: LiveMode) {
+    this.set({ mode });
+    if (LIVE_MODE_INFO[mode].sharp) this.enterLabelMode(Infinity);
+    else {
+      this.labelModeUntil = 0;
+      if (this.state.labelMode) this.set({ labelMode: false });
+    }
+  }
+
+  /** Close the card on screen. */
+  dismissCard() {
+    this.set({ card: null });
   }
 
   /** Hide the "ended"/"error" overlay. */
@@ -214,7 +251,7 @@ export class LiveSessionController {
       micLevel: 0,
       silenceCountdown: null,
       labelMode: false,
-      product: null,
+      card: null,
     });
   }
 
@@ -230,7 +267,7 @@ export class LiveSessionController {
       micLevel: 0,
       silenceCountdown: null,
       labelMode: false,
-      product: null,
+      card: null,
     });
   }
 
@@ -317,7 +354,7 @@ export class LiveSessionController {
     // means the model waits for the user instead of answering this.
     if (!resuming) {
       session.sendClientContent({
-        turns: [{ role: "user", parts: [{ text: buildContextMessage(snapshot) }] }],
+        turns: [{ role: "user", parts: [{ text: buildContextMessage(snapshot, new Date(), this.state.mode) }] }],
         turnComplete: false,
       });
     }
@@ -395,12 +432,17 @@ export class LiveSessionController {
 
     if (msg.toolCall?.functionCalls?.length) {
       this.markActivity();
-      void Promise.all(msg.toolCall.functionCalls.map(runTool)).then((results) => {
+      const context = { rated: this.rated };
+      void Promise.all(msg.toolCall.functionCalls.map((call) => runTool(call, context))).then((results) => {
         // The tools wait on Supabase; drop the results if the session ended or moved meanwhile.
         if (gen !== this.generation) return;
         for (const r of results) {
           if (r.event) this.addEvent(r.event);
-          if (r.product) this.set({ product: r.product });
+          if (r.mode && r.mode !== this.state.mode) this.applyMode(r.mode);
+          if (r.card) {
+            if (r.card.kind === "product") this.rated = [...this.rated, r.card.product].slice(-6);
+            this.set({ card: r.card });
+          }
           // Switching now also sends a sharp frame right away, before the model reads on.
           if (r.labelMode) this.enterLabelMode();
         }
@@ -562,6 +604,11 @@ async function fetchToken(): Promise<string> {
   const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
   if (!res.ok || !body.token) throw new Error(body.error || `Token request failed (${res.status}).`);
   return body.token;
+}
+
+/** The silent context turn sent when the user switches mode mid-session. */
+function modeNote(mode: LiveMode): string {
+  return `MODE CHANGE (from the app, not something the user said): the user switched LensBite to ${mode.toUpperCase()} mode. Follow the ${mode.toUpperCase()} MODE instructions from now on. Don't answer this; wait for the user.`;
 }
 
 /** 120000 -> "2 minutes", 90000 -> "90 seconds". */
